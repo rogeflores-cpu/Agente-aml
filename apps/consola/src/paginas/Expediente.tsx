@@ -433,7 +433,7 @@ function Decision({ e, fuente, alCambiar }: { e: DetalleExpediente; fuente: Fuen
         {tipo === 'aprobar_diferida' && (
           <label className="mt-4 block text-sm">
             <span className="mb-1 block">Fecha límite de la verificación</span>
-            <input type="date" value={hasta} max={maximo.toISOString().slice(0, 10)} onChange={(x) => setHasta(x.target.value)} className="rounded-lg border border-borde px-3 py-2" />
+            <input type="date" value={hasta} max={maximo.toLocaleDateString('en-CA', { timeZone: 'America/Guatemala' })} onChange={(x) => setHasta(x.target.value)} className="rounded-lg border border-borde px-3 py-2" />
           </label>
         )}
         <div className="mt-4 space-y-3">

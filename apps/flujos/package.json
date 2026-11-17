@@ -1,0 +1,25 @@
+{
+  "name": "@agente-aml/flujos",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/servidor.ts",
+    "start": "tsx src/servidor.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "@agente-aml/agente": "workspace:*",
+    "@agente-aml/listas": "workspace:*",
+    "@agente-aml/riesgo": "workspace:*",
+    "@hono/node-server": "^1.19.19",
+    "@supabase/supabase-js": "^2.119.0",
+    "hono": "^4.13.18",
+    "inngest": "^3.54.2",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.15"
+  }
+}

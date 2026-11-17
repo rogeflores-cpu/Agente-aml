@@ -1,0 +1,34 @@
+# Supabase (proyecto nuevo del Agente AML). Exponer el esquema 'aml' en
+# Settings > API > Exposed schemas.
+SUPABASE_URL=https://<proyecto>.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=
+
+# Meta / WhatsApp Business (la plataforma como proveedor tecnológico).
+META_APP_SECRET=
+META_VERIFY_TOKEN=
+META_GRAPH_API_VERSION=v21.0   # usar la versión vigente de la Graph API
+
+# Portal: https://<subdominio>.<PORTAL_DOMINIO>/e/<token>
+PORTAL_DOMINIO=
+ENLACE_VIGENCIA_DIAS=7
+
+# XML de la lista consolidada del Consejo de Seguridad de la ONU
+ONU_LISTA_URL=https://scsanctions.un.org/resources/xml/en/consolidated.xml
+
+# Inngest (producción). En local: npx inngest-cli dev
+INNGEST_EVENT_KEY=
+INNGEST_SIGNING_KEY=
+
+# Claude (agente conversacional y lectura de documentos)
+ANTHROPIC_API_KEY=
+AML_MODELO_CONVERSACION=claude-haiku-5-5
+AML_MODELO_DOCUMENTOS=claude-sonnet-5-5
+
+# Consola de cumplimiento (apps/consola, variables de Vite)
+VITE_SUPABASE_URL=https://<proyecto>.supabase.co
+VITE_SUPABASE_ANON_KEY=
+VITE_API_URL=https://flujos.<dominio>      # servidor apps/flujos
+# Servidor: llave pública, origen de la consola y administradores de la plataforma
+SUPABASE_ANON_KEY=
+CONSOLA_ORIGEN=https://consola.<dominio>
+PLATAFORMA_ADMINS=correo@ejemplo.com

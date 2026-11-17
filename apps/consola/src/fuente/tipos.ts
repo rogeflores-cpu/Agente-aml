@@ -90,11 +90,63 @@ export interface NuevaDecision {
   verificacionDiferidaHasta?: string;
 }
 
+// ---------------------------------------------------------------- vista operativa
+/**
+ * Estado que ven administrador y ejecutivo (art. 38): el examen y la revisión
+ * interna se muestran igual que una revisión normal.
+ */
+export type EstadoComercial = 'invitado' | 'en_captura' | 'en_revision' | 'aprobado' | 'no_aprobado';
+
+/** Parte de una operación tal como la ve el área comercial. Sin datos de cumplimiento. */
+export interface ParteOperativa {
+  expedienteId: string;
+  parte: 'comprador' | 'vendedor';
+  tipoPersona: 'individual' | 'juridica' | 'estructura';
+  nombre: string;
+  telefono: string | null;
+  correo: string | null;
+  estado: EstadoComercial;
+  pendientes: number;
+  whatsappVinculado: boolean;
+  actualizadoEn: string;
+}
+
+export interface FilaOperacion {
+  id: string;
+  codigo: string;
+  tipo: 'compraventa' | 'intermediacion';
+  precio: number | null;
+  moneda: string;
+  inmueble: Record<string, string>;
+  creadaEn: string;
+  partes: ParteOperativa[];
+}
+
+export type MedioPago = 'efectivo' | 'transferencia_local' | 'transferencia_exterior' | 'cheque' | 'financiamiento_bancario' | 'activos_virtuales' | 'otro';
+
+export interface NuevaOperacion {
+  tipo: 'compraventa' | 'intermediacion';
+  inmueble: { departamento: string; municipio?: string; finca?: string; direccion?: string };
+  precio?: number;
+  moneda: string;
+  valorReferencia?: number;
+  formaPago: { medio: MedioPago; monto: number; pagador: 'cliente' | 'tercero' }[];
+  partes: { parte: 'comprador' | 'vendedor'; tipoPersona: 'individual' | 'juridica' | 'estructura'; nombre: string; telefono?: string; correo?: string }[];
+}
+
+export interface NuevoPagoEfectivo { expedienteId: string; fecha: string; monto: number; moneda: string; tipoCambioUsd: number }
+
+export interface ResultadoReenvio { canal: 'whatsapp' | 'manual'; url?: string; expiraEn: string }
+
+export const ROLES_CUMPLIMIENTO: Rol[] = ['oficial', 'oficial_suplente', 'auditor'];
+export const ROLES_OPERATIVOS: Rol[] = ['administrador', 'ejecutivo'];
+
 /** Todo lo que la consola necesita. Dos implementaciones: Supabase y demostración. */
 export interface Fuente {
   modoDemo: boolean;
   sesion(): Promise<Sesion | null>;
-  iniciarSesion(correo: string, clave: string): Promise<void>;
+  /** rolDemo solo se usa en modo demostración para elegir con qué rol entrar. */
+  iniciarSesion(correo: string, clave: string, rolDemo?: Rol): Promise<void>;
   cerrarSesion(): Promise<void>;
   organizaciones(): Promise<Organizacion[]>;
   bandeja(organizacionId: string): Promise<FilaBandeja[]>;
@@ -106,4 +158,10 @@ export interface Fuente {
   decidir(expedienteId: string, d: NuevaDecision): Promise<void>;
   cerrarAlerta(alertaId: string, cierre: string): Promise<void>;
   urlDocumento(documentoId: string): Promise<string | null>;
+
+  // Vista operativa (administrador y ejecutivo)
+  operaciones(organizacionId: string): Promise<FilaOperacion[]>;
+  registrarOperacion(organizacionId: string, op: NuevaOperacion): Promise<{ codigo: string }>;
+  reenviarEnlace(expedienteId: string): Promise<ResultadoReenvio>;
+  registrarPagoEfectivo(p: NuevoPagoEfectivo): Promise<void>;
 }

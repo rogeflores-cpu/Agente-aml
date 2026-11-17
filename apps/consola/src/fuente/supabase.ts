@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import type { DetalleExpediente, Fuente } from './tipos';
+import type { DetalleExpediente, FilaOperacion, Fuente } from './tipos';
 
 /**
  * Fuente real: lecturas directas contra Supabase (aplican las políticas por
@@ -18,9 +18,9 @@ export function fuenteSupabase(): Fuente {
     return data as T;
   };
 
-  const llamar = async (ruta: string, cuerpo?: unknown, metodo = 'POST') => {
+  const llamar = async (ruta: string, cuerpo?: unknown, metodo = 'POST', prefijo = '/api/consola') => {
     const { data } = await sb.auth.getSession();
-    const r = await fetch(`${api}/api/consola${ruta}`, {
+    const r = await fetch(`${api}${prefijo}${ruta}`, {
       method: metodo,
       headers: { Authorization: `Bearer ${data.session?.access_token ?? ''}`, 'Content-Type': 'application/json' },
       body: cuerpo === undefined ? undefined : JSON.stringify(cuerpo),
@@ -117,6 +117,36 @@ export function fuenteSupabase(): Fuente {
     async urlDocumento(id) {
       const r = await llamar(`/documentos/${id}/url`, undefined, 'GET');
       return r.url ?? null;
+    },
+
+    // Vista operativa: solo la vista enmascarada aml.operaciones_comercial (art. 38).
+    async operaciones(org) {
+      const filas = await leer<any[]>(sb.from('operaciones_comercial').select('*').eq('organizacion_id', org)
+        .order('operacion_creada_en', { ascending: false }));
+      const porId = new Map<string, FilaOperacion>();
+      for (const f of filas) {
+        const op: FilaOperacion = porId.get(f.operacion_id) ?? {
+          id: f.operacion_id, codigo: f.codigo, tipo: f.tipo, precio: f.precio == null ? null : Number(f.precio),
+          moneda: f.moneda, inmueble: f.inmueble ?? {}, creadaEn: f.operacion_creada_en, partes: [],
+        };
+        op.partes.push({
+          expedienteId: f.expediente_id, parte: f.parte, tipoPersona: f.tipo_persona, nombre: f.contacto_nombre,
+          telefono: f.contacto_telefono, correo: f.contacto_correo, estado: f.estado, pendientes: Number(f.pendientes),
+          whatsappVinculado: f.whatsapp_vinculado, actualizadoEn: f.actualizado_en,
+        });
+        porId.set(f.operacion_id, op);
+      }
+      return [...porId.values()];
+    },
+    async registrarOperacion(org, op) {
+      const r = await llamar('/operaciones', { organizacionId: org, ...op }, 'POST', '/api/operaciones');
+      return { codigo: r.codigo };
+    },
+    async reenviarEnlace(id) {
+      return llamar(`/expedientes/${id}/reenviar-enlace`, {}, 'POST', '/api/operaciones');
+    },
+    async registrarPagoEfectivo(p) {
+      await llamar('/pagos-efectivo', p, 'POST', '/api/operaciones');
     },
   };
 }

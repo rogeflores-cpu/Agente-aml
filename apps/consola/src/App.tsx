@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Avisos } from './componentes/Avisos';
 import { Mensaje, Vacio } from './componentes/ui';
-import type { Fuente, Organizacion, Sesion } from './fuente/tipos';
+import { ROLES_CUMPLIMIENTO, ROLES_OPERATIVOS, type Fuente, type Organizacion, type Rol, type Sesion } from './fuente/tipos';
 import { Bandeja } from './paginas/Bandeja';
 import { Expediente } from './paginas/Expediente';
 import { Ingreso } from './paginas/Ingreso';
+import { Operaciones } from './paginas/Operaciones';
 
-const ROLES_CONSOLA = ['oficial', 'oficial_suplente', 'auditor'];
+const ROLES_CONSOLA: Rol[] = [...ROLES_CUMPLIMIENTO, ...ROLES_OPERATIVOS];
 const NOMBRE_ROL: Record<string, string> = { oficial: 'Oficial de cumplimiento', oficial_suplente: 'Oficial suplente', auditor: 'Auditor', administrador: 'Administrador', ejecutivo: 'Ejecutivo' };
 
 export function App({ fuente }: { fuente: Fuente }) {
@@ -23,7 +24,7 @@ export function App({ fuente }: { fuente: Fuente }) {
 
   if (sesion === undefined) return <Vacio>Cargando…</Vacio>;
   if (!sesion) {
-    return <Ingreso modoDemo={fuente.modoDemo} alIngresar={async (c, k) => { await fuente.iniciarSesion(c, k); setSesion(await fuente.sesion()); }} />;
+    return <Ingreso modoDemo={fuente.modoDemo} alIngresar={async (c, k, r) => { await fuente.iniciarSesion(c, k, r); setSesion(await fuente.sesion()); }} />;
   }
 
   return (
@@ -33,7 +34,7 @@ export function App({ fuente }: { fuente: Fuente }) {
           <div className="flex items-center gap-3">
             <div className="flex h-8 w-8 items-center justify-center rounded-md bg-marca text-xs font-bold text-white">AML</div>
             <div>
-              <div className="text-sm font-semibold">Consola de cumplimiento</div>
+              <div className="text-sm font-semibold">{org && ROLES_OPERATIVOS.includes(org.rol) ? 'Operaciones inmobiliarias' : 'Consola de cumplimiento'}</div>
               {org && orgs.length > 1 ? (
                 <select value={org.id} onChange={(e) => { setOrg(orgs.find((o) => o.id === e.target.value)!); setExpediente(null); }} className="text-xs text-tinta-suave">
                   {orgs.filter((o) => ROLES_CONSOLA.includes(o.rol)).map((o) => <option key={o.id} value={o.id}>{o.nombre}</option>)}
@@ -54,7 +55,10 @@ export function App({ fuente }: { fuente: Fuente }) {
       </header>
       <main className="mx-auto max-w-7xl px-6 py-6">
         {!org ? (
-          <Mensaje tipo="aviso">Su usuario no tiene un rol de cumplimiento en ninguna organización. La consola es para oficiales de cumplimiento, suplentes y auditores.</Mensaje>
+          <Mensaje tipo="aviso">Su usuario no tiene un rol asignado en ninguna organización. Solicite acceso al administrador de su inmobiliaria.</Mensaje>
+        ) : ROLES_OPERATIVOS.includes(org.rol) ? (
+          // Art. 38: los roles operativos solo ven la vista operativa enmascarada.
+          <Operaciones fuente={fuente} organizacionId={org.id} />
         ) : expediente ? (
           <Expediente fuente={fuente} id={expediente} volver={() => setExpediente(null)} />
         ) : (

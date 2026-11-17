@@ -4,7 +4,9 @@ import {
   evaluar,
   type PerfilEvaluacion,
 } from '@agente-aml/riesgo';
-import type { Aviso, Dato, DetalleExpediente, Fuente, Nivel } from './tipos';
+import type { Aviso, Dato, DetalleExpediente, FilaOperacion, Fuente, Nivel, Rol } from './tipos';
+import { ROLES_CUMPLIMIENTO } from './tipos';
+import { enmascararEstado, validarOperacion, validarPagoEfectivo } from './validacion';
 
 /**
  * Fuente de demostración: datos ficticios en memoria y el motor de riesgo
@@ -189,6 +191,16 @@ function crearDatos(): { expedientes: DetalleExpediente[]; perfiles: Record<stri
 export function fuenteDemo(): Fuente {
   const estado = crearDatos();
   let sesion: { usuarioId: string; correo: string } | null = null;
+  let rol: Rol = 'oficial';
+  /** Como la RLS real: los roles operativos no leen ni actúan sobre datos de cumplimiento. */
+  const exigirCumplimiento = () => {
+    if (!ROLES_CUMPLIMIENTO.includes(rol)) throw new Error('Sin permiso: información reservada a cumplimiento');
+  };
+  const avisosOperativos: Aviso[] = [
+    { id: 'avo1', asunto: 'Cliente sin completar su información', cuerpo: 'María José Castillo Herrera no ha completado su expediente después de 3 recordatorios.', prioridad: 'normal', expedienteId: null, creadaEn: hace(20), leida: false },
+  ];
+  const pagosEfectivo: { expedienteId: string; fecha: string; montoUsd: number }[] = [];
+  let correlativo = 16;
   const buscar = (id: string) => {
     const e = estado.expedientes.find((x) => x.id === id);
     if (!e) throw new Error('Expediente no encontrado');
@@ -207,11 +219,15 @@ export function fuenteDemo(): Fuente {
   return {
     modoDemo: true,
     async sesion() { return sesion; },
-    async iniciarSesion(correo) { sesion = { usuarioId: 'oficial-demo', correo: correo || 'oficial@demo.example' }; },
+    async iniciarSesion(correo, _clave, rolDemo) {
+      rol = rolDemo ?? 'oficial';
+      sesion = { usuarioId: `${rol}-demo`, correo: correo || `${rol}@demo.example` };
+    },
     async cerrarSesion() { sesion = null; },
-    async organizaciones() { return [{ id: ORG, nombre: 'Inmobiliaria Demostración', rol: 'oficial' }]; },
+    async organizaciones() { return [{ id: ORG, nombre: 'Inmobiliaria Demostración', rol }]; },
 
     async bandeja() {
+      exigirCumplimiento();
       return estado.expedientes.map((e) => ({
         id: e.id, codigoOperacion: e.codigoOperacion, parte: e.parte, tipoPersona: e.tipoPersona, nombre: e.contacto.nombre,
         estado: e.estado, nivel: nivelVigente(e), pendientes: e.pendientes.filter((p) => p.estado === 'abierto').length,
@@ -220,11 +236,12 @@ export function fuenteDemo(): Fuente {
         actualizadoEn: e.bitacora[0]?.ocurridoEn ?? hace(1),
       }));
     },
-    async expediente(id) { return copia(buscar(id)); },
-    async avisos() { return copia(estado.avisos); },
-    async marcarLeido(id) { const a = estado.avisos.find((x) => x.id === id); if (a) a.leida = true; },
+    async expediente(id) { exigirCumplimiento(); return copia(buscar(id)); },
+    async avisos() { return copia(ROLES_CUMPLIMIENTO.includes(rol) ? estado.avisos : avisosOperativos); },
+    async marcarLeido(id) { const a = [...estado.avisos, ...avisosOperativos].find((x) => x.id === id); if (a) a.leida = true; },
 
     async evaluar(id, ajustes) {
+      exigirCumplimiento();
       const e = buscar(id);
       const onu = e.verificaciones.filter((v) => v.fuente === 'onu');
       const perfil: PerfilEvaluacion = {
@@ -260,6 +277,7 @@ export function fuenteDemo(): Fuente {
     },
 
     async disponer(id, resultado, justificacion) {
+      exigirCumplimiento();
       exigirTexto(justificacion, 'Justificación');
       const e = estado.expedientes.find((x) => x.verificaciones.some((v) => v.id === id))!;
       const v = e.verificaciones.find((x) => x.id === id)!;
@@ -276,6 +294,7 @@ export function fuenteDemo(): Fuente {
     },
 
     async decidir(id, d) {
+      exigirCumplimiento();
       exigirTexto(d.justificacion, 'Justificación');
       const e = buscar(id);
       const aprueba = d.tipo === 'aprobar' || d.tipo === 'aprobar_diferida';
@@ -296,6 +315,7 @@ export function fuenteDemo(): Fuente {
     },
 
     async cerrarAlerta(id, cierre) {
+      exigirCumplimiento();
       exigirTexto(cierre, 'Cierre');
       const e = estado.expedientes.find((x) => x.alertas.some((a) => a.id === id))!;
       Object.assign(e.alertas.find((a) => a.id === id)!, { estado: 'cerrada', cierre });
@@ -303,5 +323,74 @@ export function fuenteDemo(): Fuente {
     },
 
     async urlDocumento() { return null; },
+
+    // ------------------------------------------------ vista operativa
+    async operaciones() {
+      const porCodigo = new Map<string, FilaOperacion>();
+      for (const e of estado.expedientes) {
+        const creada = e.bitacora.at(-1)?.ocurridoEn ?? hace(1);
+        const op = porCodigo.get(e.codigoOperacion) ?? {
+          id: e.codigoOperacion, codigo: e.codigoOperacion, tipo: e.operacion.tipo as FilaOperacion['tipo'],
+          precio: e.operacion.precio, moneda: e.operacion.moneda, inmueble: { ...e.operacion.inmueble }, creadaEn: creada, partes: [],
+        };
+        // Solo campos que el área comercial puede ver (art. 38).
+        op.partes.push({
+          expedienteId: e.id, parte: e.parte, tipoPersona: e.tipoPersona, nombre: e.contacto.nombre,
+          telefono: e.contacto.telefono, correo: e.contacto.correo, estado: enmascararEstado(e.estado),
+          pendientes: e.pendientes.filter((p) => p.estado === 'abierto').length,
+          whatsappVinculado: e.contacto.whatsappVinculado, actualizadoEn: e.bitacora[0]?.ocurridoEn ?? creada,
+        });
+        porCodigo.set(e.codigoOperacion, op);
+      }
+      return [...porCodigo.values()].sort((a, b) => b.codigo.localeCompare(a.codigo));
+    },
+
+    async registrarOperacion(_org, op) {
+      if (rol === 'auditor') throw new Error('Sin permiso para registrar operaciones');
+      const errores = validarOperacion(op);
+      if (Object.keys(errores).length) throw new Error(Object.values(errores)[0]);
+      const codigo = `OP-2026-${String(++correlativo).padStart(5, '0')}`;
+      const ahora = new Date().toISOString();
+      const nuevos: DetalleExpediente[] = [];
+      op.partes.forEach((p, i) => {
+        const id = `exp-n${correlativo}-${i}`;
+        nuevos.push({
+          id, organizacionId: ORG, codigoOperacion: codigo, parte: p.parte, tipoPersona: p.tipoPersona, estado: 'invitado',
+          contacto: { nombre: p.nombre, telefono: p.telefono ?? null, correo: p.correo ?? null, whatsappVinculado: false },
+          operacion: { tipo: op.tipo, precio: op.precio ?? null, moneda: op.moneda, inmueble: { ...op.inmueble } as Record<string, string>, formaPago: op.formaPago.map((f) => ({ medio: f.medio, monto: f.monto })) },
+          verificacionDiferidaHasta: null, datos: [], documentos: [], pendientes: [], verificaciones: [], alertas: [],
+          evaluaciones: [], decisiones: [], bitacora: [{ id: 1000 + correlativo * 10 + i, ocurridoEn: ahora, actorTipo: 'usuario', evento: 'insert', entidad: 'expedientes', hash: hash(1000 + correlativo + i) }],
+        });
+        estado.perfiles[id] = perfilBase({ parte: p.parte, tipoPersona: p.tipoPersona, tipoOperacion: op.tipo, ddcCompleta: false, origenFondosDeclarado: p.parte === 'vendedor' });
+      });
+      estado.expedientes.unshift(...nuevos);
+      return { codigo };
+    },
+
+    async reenviarEnlace(expedienteId) {
+      const e = buscar(expedienteId);
+      if (['aprobado', 'aprobado_condicionado', 'rechazado', 'abstenido'].includes(e.estado)) throw new Error('El expediente ya fue resuelto');
+      const expiraEn = new Date(Date.now() + 7 * 86_400_000).toISOString();
+      return e.contacto.telefono
+        ? { canal: 'whatsapp' as const, expiraEn }
+        : { canal: 'manual' as const, url: `https://demo-inmuebles.ejemplo.invalid/e/${Math.random().toString(36).slice(2, 12)}`, expiraEn };
+    },
+
+    async registrarPagoEfectivo(p) {
+      if (rol === 'auditor') throw new Error('Sin permiso para registrar pagos');
+      const errores = validarPagoEfectivo(p);
+      if (Object.keys(errores).length) throw new Error(Object.values(errores)[0]);
+      buscar(p.expedienteId);
+      pagosEfectivo.push({ expedienteId: p.expedienteId, fecha: p.fecha, montoUsd: p.monto / p.tipoCambioUsd });
+      // El control del umbral (art. 31) lo ve cumplimiento: en la demo se refleja como aviso para el oficial.
+      const total = pagosEfectivo.filter((x) => x.expedienteId === p.expedienteId && x.fecha === p.fecha).reduce((s, x) => s + x.montoUsd, 0);
+      if (total >= 10000 && !estado.avisos.some((a) => a.id === `av-ef-${p.expedienteId}-${p.fecha}`)) {
+        estado.avisos.unshift({
+          id: `av-ef-${p.expedienteId}-${p.fecha}`, asunto: 'Efectivo diario sujeto a registro (art. 31)',
+          cuerpo: `Pagos en efectivo del ${p.fecha} suman USD ${Math.round(total).toLocaleString('es-GT')}.`,
+          prioridad: 'alta', expedienteId: p.expedienteId, creadaEn: new Date().toISOString(), leida: false,
+        });
+      }
+    },
   };
 }

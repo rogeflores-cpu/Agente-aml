@@ -3,11 +3,11 @@ import {
   Boton, ESTADOS, Insignia, Mensaje, NIVELES, NOMBRE_DOCUMENTO, Tarjeta, Vacio,
   etiquetaCampo, fecha, moneda, mostrarValor,
 } from '../componentes/ui';
-import type { AjustesEvaluacion, DetalleExpediente, Fuente, NuevaDecision, Verificacion } from '../fuente/tipos';
+import type { AjustesEvaluacion, DetalleExpediente, Fuente, NuevaDecision, Rol, Verificacion } from '../fuente/tipos';
 
 type Pestana = 'resumen' | 'datos' | 'documentos' | 'listas' | 'riesgo' | 'alertas' | 'decision' | 'bitacora';
 
-export function Expediente({ fuente, id, volver }: { fuente: Fuente; id: string; volver: () => void }) {
+export function Expediente({ fuente, id, rol, volver }: { fuente: Fuente; id: string; rol?: Rol; volver: () => void }) {
   const [e, setE] = useState<DetalleExpediente | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pestana, setPestana] = useState<Pestana>('resumen');
@@ -83,7 +83,7 @@ export function Expediente({ fuente, id, volver }: { fuente: Fuente; id: string;
       {pestana === 'listas' && <Listas e={e} fuente={fuente} alCambiar={recargar} />}
       {pestana === 'riesgo' && <Riesgo e={e} fuente={fuente} alCambiar={recargar} />}
       {pestana === 'alertas' && <Alertas e={e} fuente={fuente} alCambiar={recargar} />}
-      {pestana === 'decision' && <Decision e={e} fuente={fuente} alCambiar={recargar} />}
+      {pestana === 'decision' && <Decision e={e} fuente={fuente} suplente={rol === 'oficial_suplente'} alCambiar={recargar} />}
       {pestana === 'bitacora' && <Bitacora e={e} />}
     </div>
   );
@@ -411,11 +411,12 @@ const DECISIONES: { valor: NuevaDecision['tipo']; texto: string; ayuda: string }
   { valor: 'rechazar', texto: 'Rechazar la vinculación', ayuda: 'El riesgo excede lo aceptado por la política.' },
 ];
 
-function Decision({ e, fuente, alCambiar }: { e: DetalleExpediente; fuente: Fuente; alCambiar: () => void }) {
+function Decision({ e, fuente, suplente, alCambiar }: { e: DetalleExpediente; fuente: Fuente; suplente: boolean; alCambiar: () => void }) {
   const [tipo, setTipo] = useState<NuevaDecision['tipo']>('aprobar');
   const [justificacion, setJustificacion] = useState('');
   const [condiciones, setCondiciones] = useState('');
   const [hasta, setHasta] = useState('');
+  const [motivoSuplencia, setMotivoSuplencia] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState(false);
   const maximo = new Date(); maximo.setMonth(maximo.getMonth() + 3);
@@ -442,13 +443,25 @@ function Decision({ e, fuente, alCambiar }: { e: DetalleExpediente; fuente: Fuen
             <input value={condiciones} onChange={(x) => setCondiciones(x.target.value)} placeholder="Condiciones o información adicional requerida"
               className="w-full rounded-lg border border-borde px-3 py-2 text-sm" />
           )}
+          {suplente && (
+            <label className="block text-sm">
+              <span className="mb-1 block">Motivo de la suplencia</span>
+              <input value={motivoSuplencia} onChange={(x) => setMotivoSuplencia(x.target.value)}
+                placeholder="Por qué decide en lugar del oficial titular (p. ej. ausencia por vacaciones del 15 al 30 de noviembre)"
+                className="w-full rounded-lg border border-borde px-3 py-2 text-sm" />
+              <span className="mt-1 block text-xs text-tinta-suave">Queda registrado junto con la decisión.</span>
+            </label>
+          )}
           {error && <Mensaje tipo="error">{error}</Mensaje>}
           {ok && <Mensaje tipo="ok">Decisión registrada.</Mensaje>}
-          <Boton tipo={tipo === 'rechazar' || tipo === 'abstener' ? 'peligro' : 'primario'} disabled={justificacion.trim().length < 20 || (tipo === 'aprobar_diferida' && !hasta)}
+          <Boton tipo={tipo === 'rechazar' || tipo === 'abstener' ? 'peligro' : 'primario'} disabled={justificacion.trim().length < 20 || (tipo === 'aprobar_diferida' && !hasta) || (suplente && motivoSuplencia.trim().length < 10)}
             onClick={async () => {
               setError(null); setOk(false);
               try {
-                await fuente.decidir(e.id, { tipo, justificacion, condiciones: condiciones || undefined, verificacionDiferidaHasta: hasta || undefined });
+                await fuente.decidir(e.id, {
+                  tipo, justificacion, condiciones: condiciones || undefined, verificacionDiferidaHasta: hasta || undefined,
+                  motivoSuplencia: suplente ? motivoSuplencia.trim() : undefined,
+                });
                 setOk(true); setJustificacion(''); alCambiar();
               } catch (x) { setError((x as Error).message); }
             }}>Registrar decisión</Boton>

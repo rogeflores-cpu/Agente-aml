@@ -12,7 +12,7 @@ import {
   type VistaCliente,
 } from '@agente-aml/agente';
 import { inngest } from './cliente-inngest.js';
-import { MENSAJE_NO_EDITABLE, cotejosPendientes, idEventoCotejo, politicaEdicion } from './cotejos.js';
+import { MENSAJE_NO_EDITABLE, cotejosPendientes, estadoAparente, idEventoCotejo, politicaEdicion } from './cotejos.js';
 import { db, sinError } from './datos.js';
 import { estadoParaCliente } from './plantillas.js';
 
@@ -22,16 +22,26 @@ interface ExpedienteBase {
   parte: 'comprador' | 'vendedor';
   tipo_persona: 'individual' | 'juridica' | 'estructura';
   estado: string;
+  estado_comercial: string;
+  /** Estado que se usa hacia el cliente: no delata un examen posterior (art. 38). */
+  estado_aparente: string;
   contacto_nombre: string;
   organizaciones: { nombre_comercial: string; marca: { nombre_visible?: string } | null };
 }
 
 async function cargarBase(expedienteId: string): Promise<ExpedienteBase> {
-  return (await sinError(
+  const base = (await sinError(
     db().from('expedientes')
-      .select('id, organizacion_id, parte, tipo_persona, estado, contacto_nombre, organizaciones(nombre_comercial, marca)')
+      .select('id, organizacion_id, parte, tipo_persona, estado, estado_comercial, contacto_nombre, organizaciones(nombre_comercial, marca)')
       .eq('id', expedienteId).single(),
   )) as unknown as ExpedienteBase;
+  let ultimaAprobacion: 'aprobar' | 'aprobar_diferida' | null = null;
+  if (base.estado === 'en_examen' && base.estado_comercial === 'aprobado') {
+    const d = (await sinError(db().from('decisiones').select('tipo').eq('expediente_id', expedienteId)
+      .in('tipo', ['aprobar', 'aprobar_diferida']).order('decidido_en', { ascending: false }).limit(1).maybeSingle())) as { tipo: 'aprobar' | 'aprobar_diferida' } | null;
+    ultimaAprobacion = d?.tipo ?? null;
+  }
+  return { ...base, estado_aparente: estadoAparente(base.estado, base.estado_comercial, ultimaAprobacion) };
 }
 
 /** Solo lee tablas del lado del cliente: datos, documentos y pendientes. */
@@ -85,7 +95,7 @@ export async function sincronizarPendientes(expedienteId: string) {
       descripcion: p.descripcion,
     }))));
   }
-  if (resultado.completo && entrada.base.estado === 'aprobado_condicionado') {
+  if (resultado.completo && entrada.base.estado_aparente === 'aprobado_condicionado') {
     await inngest.send({
       name: 'aml/expediente.diferido_completado',
       data: { organizacionId: entrada.base.organizacion_id, expedienteId },
@@ -210,7 +220,7 @@ export function crearPuerto(
   /** M4: el cliente no cambia un expediente ya resuelto; si ya estaba en revisión, se avisa a cumplimiento. */
   const exigirEditable = async () => {
     const base = await cargarBase(expedienteId);
-    const politica = politicaEdicion(base.estado);
+    const politica = politicaEdicion(base.estado_aparente);
     if (politica === 'rechazar') throw new ExpedienteNoEditable(MENSAJE_NO_EDITABLE);
     return { base, politica };
   };
@@ -240,7 +250,7 @@ export function crearPuerto(
         nombreOrganizacion,
         nombreCliente: e.base.contacto_nombre,
         contexto: e.contexto,
-        estado: estadoParaCliente[e.base.estado] ?? 'En revisión',
+        estado: estadoParaCliente[e.base.estado_aparente] ?? 'En revisión',
         datos: Object.entries(e.datos).map(([campo, d]) => ({ campo, valor: d.valor, origen: d.origen, confirmado: d.confirmado })),
         documentos: e.documentos.map((d) => ({ clave: d.clave, estado: d.estado === 'observado' ? 'requiere reenvío' : 'recibido' })),
         // Un pendiente redactado a mano con términos reservados no llega al cliente (art. 38)

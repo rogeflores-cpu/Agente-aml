@@ -68,7 +68,14 @@ async function exigirOficial(c: Context<{ Variables: Vars }>, expedienteId: stri
   const rol = await rolEn(exp.organizacion_id, c.get('usuarioId'));
   if (!rol) return { error: c.json({ error: 'Expediente no encontrado' }, 404) }; // B5: no revelar que existe en otra organización
   if (rol !== 'oficial' && rol !== 'oficial_suplente') return { error: c.json({ error: 'Solo el oficial de cumplimiento' }, 403) };
-  return { exp };
+  return { exp, rol };
+}
+
+/** Código HTTP para un error de PostgREST de las funciones de la base. */
+export function codigoHttp(codigo: string | undefined): 400 | 403 | 409 {
+  if (codigo === '42501') return 403;
+  if (codigo === '22023' || codigo === '23514' || codigo === '23502') return 400;
+  return 409;
 }
 
 const invalido = (c: Context, e: z.ZodError) => c.json({ error: 'Datos inválidos', detalle: e.issues.map((i) => `${i.path.join('.')}: ${i.message}`) }, 400);
@@ -205,10 +212,11 @@ apiConsola.post('/evaluaciones/:id/ajustar', async (c) => {
   if (!ajustePermitido(cuerpo.data.nivel, (ev as any).reglas_impuestas)) {
     return c.json({ error: `Las reglas aplicadas imponen un nivel mínimo ${nivelMinimoImpuesto((ev as any).reglas_impuestas)}.` }, 409);
   }
-  const { error } = await comoUsuario(c).from('evaluaciones_riesgo')
-    .update({ nivel_ajustado: cuerpo.data.nivel, justificacion_ajuste: cuerpo.data.justificacion, ajustado_por: c.get('usuarioId') })
-    .eq('id', c.req.param('id'));
-  if (error) return c.json({ error: error.message }, 403);
+  // La base valida el rol, el ajuste único y el mínimo; el responsable es auth.uid()
+  const { error } = await comoUsuario(c).rpc('ajustar_nivel_evaluacion', {
+    p_evaluacion: c.req.param('id'), p_nivel: cuerpo.data.nivel, p_justificacion: cuerpo.data.justificacion,
+  });
+  if (error) return c.json({ error: error.message }, codigoHttp(error.code));
   return c.json({ ok: true });
 });
 
@@ -220,20 +228,26 @@ apiConsola.post('/verificaciones/:id/disponer', async (c) => {
   }).safeParse(await c.req.json().catch(() => ({})));
   if (!cuerpo.success) return invalido(c, cuerpo.error);
   const ahora = new Date().toISOString();
-  const { data, error } = await comoUsuario(c).from('verificaciones')
-    .update({ resultado: cuerpo.data.resultado, justificacion: cuerpo.data.justificacion, dispuesto_por: c.get('usuarioId'), dispuesto_en: ahora })
-    .eq('id', c.req.param('id')).eq('resultado', 'posible_coincidencia')
-    .select('id, organizacion_id, expediente_id').maybeSingle();
-  if (error) return c.json({ error: error.message }, 403);
+  // disponer_verificacion valida el rol, fija dispuesto_por = auth.uid() y, si se
+  // confirma, abre la alerta ONU_CONFIRMADA en la misma transacción.
+  const { data: filas, error } = await comoUsuario(c).rpc('disponer_verificacion', {
+    p_verificacion: c.req.param('id'), p_resultado: cuerpo.data.resultado, p_justificacion: cuerpo.data.justificacion,
+  });
+  if (error) {
+    // Sin permiso o inexistente: misma respuesta, para no revelar verificaciones de otra organización
+    if (error.code === '42501') return c.json({ error: 'La verificación no existe o no tiene permiso para disponerla' }, 403);
+    return c.json({ error: error.message }, codigoHttp(error.code));
+  }
+  const data = (filas as Array<{ verificacion_id: string; organizacion_id: string; expediente_id: string }> | null)?.[0];
   if (!data) return c.json({ error: 'La verificación no existe o ya fue dispuesta' }, 409);
   await inngest.send({
     name: 'aml/verificacion.dispuesta',
-    data: { organizacionId: data.organizacion_id, verificacionId: data.id, resultado: cuerpo.data.resultado },
+    data: { organizacionId: data.organizacion_id, verificacionId: data.verificacion_id, resultado: cuerpo.data.resultado },
   });
   if (cuerpo.data.resultado === 'coincidencia_confirmada') {
     await inngest.send({
       name: 'aml/onu.coincidencia_confirmada',
-      data: { organizacionId: data.organizacion_id, expedienteId: data.expediente_id, verificacionId: data.id, confirmadaEn: ahora },
+      data: { organizacionId: data.organizacion_id, expedienteId: data.expediente_id, verificacionId: data.verificacion_id, confirmadaEn: ahora },
     });
   }
   return c.json({ ok: true });
@@ -246,14 +260,19 @@ const esquemaDecision = z.object({
   condiciones: z.string().optional(),
   verificacionDiferidaHasta: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   evaluacionId: z.string().uuid().optional(),
+  /** Obligatorio cuando decide el oficial suplente (por qué actúa en lugar del titular). */
+  motivoSuplencia: z.string().trim().min(10, 'Indique por qué actúa en lugar del titular (al menos 10 caracteres)').optional(),
 });
 
 apiConsola.post('/expedientes/:id/decidir', async (c) => {
-  const { exp, error } = await exigirOficial(c, c.req.param('id'));
+  const { exp, rol, error } = await exigirOficial(c, c.req.param('id'));
   if (error) return error;
   const cuerpo = esquemaDecision.safeParse(await c.req.json().catch(() => ({})));
   if (!cuerpo.success) return invalido(c, cuerpo.error);
   const d = cuerpo.data;
+  if (rol === 'oficial_suplente' && !d.motivoSuplencia) {
+    return c.json({ error: 'Como oficial suplente, indique el motivo por el que decide en lugar del titular.' }, 400);
+  }
   const aprueba = d.tipo === 'aprobar' || d.tipo === 'aprobar_diferida';
 
   let evaluacion: { id: string; nivel: string } | null = null;
@@ -295,6 +314,7 @@ apiConsola.post('/expedientes/:id/decidir', async (c) => {
     verificacion_diferida_hasta: d.verificacionDiferidaHasta ?? null,
     justificacion: d.justificacion,
     decidido_por: c.get('usuarioId'),
+    motivo_suplencia: rol === 'oficial_suplente' ? d.motivoSuplencia : null,
   });
   if (e) return c.json({ error: e.message }, e.code === '42501' ? 403 : 409);
 
@@ -319,12 +339,14 @@ apiConsola.post('/expedientes/:id/decidir', async (c) => {
 apiConsola.post('/alertas/:id/cerrar', async (c) => {
   const cuerpo = z.object({ cierre: z.string().min(20, 'Describa el cierre con al menos 20 caracteres') }).safeParse(await c.req.json().catch(() => ({})));
   if (!cuerpo.success) return invalido(c, cuerpo.error);
-  const { data, error } = await comoUsuario(c).from('alertas')
-    .update({ estado: 'cerrada', cierre: cuerpo.data.cierre, cerrada_en: new Date().toISOString(), responsable: c.get('usuarioId') })
-    .eq('id', c.req.param('id')).neq('estado', 'cerrada').select('id, organizacion_id').maybeSingle();
-  if (error) return c.json({ error: error.message }, 403);
+  const { data: filas, error } = await comoUsuario(c).rpc('cerrar_alerta', { p_alerta: c.req.param('id'), p_cierre: cuerpo.data.cierre });
+  if (error) {
+    if (error.code === '42501') return c.json({ error: 'La alerta no existe o no tiene permiso para cerrarla' }, 403);
+    return c.json({ error: error.message }, codigoHttp(error.code));
+  }
+  const data = (filas as Array<{ alerta_id: string; organizacion_id: string }> | null)?.[0];
   if (!data) return c.json({ error: 'La alerta no existe o ya está cerrada' }, 409);
-  await inngest.send({ name: 'aml/alerta.cerrada', data: { organizacionId: data.organizacion_id, alertaId: data.id } });
+  await inngest.send({ name: 'aml/alerta.cerrada', data: { organizacionId: data.organizacion_id, alertaId: data.alerta_id } });
   return c.json({ ok: true });
 });
 

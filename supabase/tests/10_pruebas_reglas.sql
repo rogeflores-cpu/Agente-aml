@@ -97,10 +97,8 @@ end $$;
 
 -- 7. El oficial descarta la coincidencia con justificación y aprueba -------
 set local request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
-update aml.verificaciones
-   set resultado = 'descartada', dispuesto_por = '22222222-2222-2222-2222-222222222222', dispuesto_en = now(),
-       justificacion = 'Fecha de nacimiento y nacionalidad distintas a las del listado'
- where nombre_consultado = 'Ana Pérez';
+select aml.disponer_verificacion(v.id, 'descartada', 'Fecha de nacimiento y nacionalidad distintas a las del listado')
+  from aml.verificaciones v where v.nombre_consultado = 'Ana Pérez';
 
 -- (Ajuste 17/11/2026: antes se aprobaba un expediente 'invitado', sin nombre
 -- identificado y sin evaluación de riesgo, lo que la revisión independiente

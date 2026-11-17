@@ -2,7 +2,7 @@ import { atenderTurno, clienteClaude } from '@agente-aml/agente';
 import { inngest } from '../cliente-inngest.js';
 import { config } from '../config.js';
 import { LIMITE_CODIGOS, codigoPermitido } from '../cotejos.js';
-import { db, notificar, sinError } from '../datos.js';
+import { conActor, db, notificar, sinError } from '../datos.js';
 import { MAX_DOCUMENTO_BYTES, procesarDocumento } from '../documentos-entrantes.js';
 import { respuestas } from '../plantillas.js';
 import { crearPuertoConEventos } from '../repositorio.js';
@@ -153,12 +153,14 @@ export const whatsappEntrante = inngest.createFunction(
         .reverse()
         .map((x) => ({ rol: x.direccion === 'entrante' ? ('cliente' as const) : ('agente' as const), texto: x.texto }));
 
-      const r = await atenderTurno(clienteClaude(), crearPuertoConEventos(expedienteId), {
-        historial,
-        mensaje: m.texto ?? '',
-        nota,
-        canal: 'whatsapp',
-      });
+      // Lo que el agente registra a partir de las respuestas del cliente queda a nombre del cliente
+      const r = await conActor({ tipo: 'cliente', id: `whatsapp:${expedienteId}` }, () =>
+        atenderTurno(clienteClaude(), crearPuertoConEventos(expedienteId), {
+          historial,
+          mensaje: m.texto ?? '',
+          nota,
+          canal: 'whatsapp',
+        }));
       return {
         texto: r.respuesta,
         reemplazada: r.respuestaReemplazada,

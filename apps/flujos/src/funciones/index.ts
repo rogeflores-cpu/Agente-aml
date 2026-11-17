@@ -1,3 +1,4 @@
+import { anclaBitacora } from './ancla-bitacora.js';
 import { actualizarListaYRecotejar, cotejoInicial } from './cotejo-onu.js';
 import { expedienteCreado } from './expediente-creado.js';
 import { revisarListaGafi } from './gafi.js';
@@ -14,4 +15,5 @@ export const funciones = [
   actualizacionPeriodica,
   whatsappEntrante,
   revisarListaGafi,
+  anclaBitacora,
 ];

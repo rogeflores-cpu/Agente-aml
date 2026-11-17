@@ -60,7 +60,7 @@ export function App({ fuente }: { fuente: Fuente }) {
           // Art. 38: los roles operativos solo ven la vista operativa enmascarada.
           <Operaciones fuente={fuente} organizacionId={org.id} />
         ) : expediente ? (
-          <Expediente fuente={fuente} id={expediente} volver={() => setExpediente(null)} />
+          <Expediente fuente={fuente} id={expediente} rol={org.rol} volver={() => setExpediente(null)} />
         ) : (
           <Bandeja fuente={fuente} organizacionId={org.id} abrir={setExpediente} />
         )}

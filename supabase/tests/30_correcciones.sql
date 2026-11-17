@@ -107,8 +107,7 @@ do $$ begin
   end;
   -- 2. Pasar una posible coincidencia a sin_coincidencia
   begin
-    update aml.verificaciones set resultado = 'sin_coincidencia', dispuesto_por = auth.uid(), justificacion = null
-     where id = '00000000-0000-0000-0000-00000000b001';
+    perform aml.disponer_verificacion('00000000-0000-0000-0000-00000000b001', 'sin_coincidencia', null);
     raise exception 'FALLO: posible coincidencia cambiada a sin coincidencia';
   exception when others then if sqlerrm like 'FALLO%' then raise; end if; raise notice 'bloqueado: %', sqlerrm;
   end;
@@ -127,9 +126,7 @@ do $$ begin
   end;
   -- 5. Bajar el nivel por debajo del mínimo de las reglas (M1)
   begin
-    update aml.evaluaciones_riesgo
-       set nivel_ajustado = 'bajo', justificacion_ajuste = 'Cliente conocido desde hace muchos años', ajustado_por = auth.uid()
-     where id = '00000000-0000-0000-0000-00000000ee01';
+    perform aml.ajustar_nivel_evaluacion('00000000-0000-0000-0000-00000000ee01', 'bajo', 'Cliente conocido desde hace muchos años');
     raise exception 'FALLO: nivel ajustado por debajo del mínimo';
   exception when others then if sqlerrm like 'FALLO%' then raise; end if; raise notice 'bloqueado: %', sqlerrm;
   end;
@@ -156,27 +153,19 @@ end $$;
 
 -- Lo permitido sigue funcionando: ajuste único al nivel mínimo, corrección
 -- de un dato con su nombre, disposición con justificación
-update aml.evaluaciones_riesgo
-   set nivel_ajustado = 'medio', justificacion_ajuste = 'Se mantiene el mínimo de la regla PEP vigente', ajustado_por = auth.uid()
- where id = '00000000-0000-0000-0000-00000000ee01';
+select aml.ajustar_nivel_evaluacion('00000000-0000-0000-0000-00000000ee01', 'medio', 'Se mantiene el mínimo de la regla PEP vigente');
 select aml.corregir_dato_oficial('00000000-0000-0000-0000-00000000e002', 'cliente.profesion', '"Ingeniero civil"', 'Dato verificado en llamada con el cliente');
-update aml.verificaciones
-   set resultado = 'coincidencia_confirmada', dispuesto_por = auth.uid(),
-       justificacion = 'Nombre, fecha de nacimiento y documento coinciden con el listado'
- where id = '00000000-0000-0000-0000-00000000b001';
+select aml.disponer_verificacion('00000000-0000-0000-0000-00000000b001', 'coincidencia_confirmada',
+       'Nombre, fecha de nacimiento y documento coinciden con el listado');
 do $$ begin
   begin
-    update aml.evaluaciones_riesgo
-       set nivel_ajustado = 'alto', justificacion_ajuste = 'Segundo ajuste sobre la misma evaluación', ajustado_por = auth.uid()
-     where id = '00000000-0000-0000-0000-00000000ee01';
+    perform aml.ajustar_nivel_evaluacion('00000000-0000-0000-0000-00000000ee01', 'alto', 'Segundo ajuste sobre la misma evaluación');
     raise exception 'FALLO: segundo ajuste sobre la misma evaluación';
   exception when others then if sqlerrm like 'FALLO%' then raise; end if; raise notice 'bloqueado: %', sqlerrm;
   end;
   -- Deshacer una coincidencia confirmada
   begin
-    update aml.verificaciones set resultado = 'descartada', dispuesto_por = auth.uid(),
-           justificacion = 'Me equivoqué al confirmar esta coincidencia'
-     where id = '00000000-0000-0000-0000-00000000b001';
+    perform aml.disponer_verificacion('00000000-0000-0000-0000-00000000b001', 'descartada', 'Me equivoqué al confirmar esta coincidencia');
     raise exception 'FALLO: se revirtió una coincidencia confirmada';
   exception when others then if sqlerrm like 'FALLO%' then raise; end if; raise notice 'bloqueado: %', sqlerrm;
   end;
@@ -246,11 +235,11 @@ do $$ begin
   exception when others then if sqlerrm like 'FALLO%' then raise; end if; raise notice 'bloqueado: %', sqlerrm;
   end;
 end $$;
-update aml.alertas set estado = 'cerrada', cierre = 'Comunicado al Ministerio Público, oficio 123-2026', cerrada_en = now(), responsable = auth.uid()
- where senal = 'PAGO_TERCEROS';
+select aml.cerrar_alerta((select id from aml.alertas where senal = 'PAGO_TERCEROS'), 'Comunicado al Ministerio Público, oficio 123-2026');
 do $$ begin
   begin
     update aml.alertas set estado = 'abierta' where senal = 'PAGO_TERCEROS';
+    if not found then raise exception 'bloqueado sin filas (sin permiso de actualización)'; end if;
     raise exception 'FALLO: se reabrió una alerta cerrada';
   exception when others then if sqlerrm like 'FALLO%' then raise; end if; raise notice 'bloqueado: %', sqlerrm;
   end;

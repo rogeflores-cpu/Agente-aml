@@ -14,6 +14,17 @@ describe('fuente de demostración: mismas reglas que la base', () => {
     expect((await f.expediente('exp-a')).estado).toBe('aprobado');
   });
 
+  it('el oficial suplente debe indicar el motivo de la suplencia', async () => {
+    const f = fuenteDemo();
+    await f.iniciarSesion('suplente@example.com', 'x', 'oficial_suplente');
+    await f.disponer('ver-a1', 'descartada', 'Fecha de nacimiento distinta a la del listado.');
+    await f.evaluar('exp-a', {});
+    await expect(f.decidir('exp-a', { tipo: 'aprobar', justificacion: 'Expediente completo y coherente con el monto.' }))
+      .rejects.toThrow(/suplente/);
+    await f.decidir('exp-a', { tipo: 'aprobar', justificacion: 'Expediente completo y coherente con el monto.', motivoSuplencia: 'Titular de vacaciones esta semana.' });
+    expect((await f.expediente('exp-a')).estado).toBe('aprobado');
+  });
+
   it('exige justificación y respeta el máximo de 3 meses de la verificación diferida', async () => {
     const f = fuenteDemo();
     await expect(f.cerrarAlerta('al-b1', 'corto')).rejects.toThrow(/20 caracteres/);

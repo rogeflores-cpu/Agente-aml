@@ -48,7 +48,7 @@ function dependencias(cambios: Partial<DependenciasPortal> = {}) {
     guardarMensaje: vi.fn(async (_e, direccion, texto) => { mensajes.push({ direccion, texto }); }),
     atender: vi.fn(async () => ({ respuesta: 'Gracias. ¿Cuál es su estado civil?', acciones: [], respuestaReemplazada: false })),
     procesarDocumento: vi.fn(async () => ({ nota: 'Se leyó su DPI.' })),
-    guardarCodigoWhatsapp: vi.fn(async () => {}),
+    guardarCodigoWhatsapp: vi.fn(async () => '2026-11-16T18:30:00.000Z'),
     numeroWhatsapp: vi.fn(async () => '+502 5555 0000'),
     avisarReemplazo: vi.fn(async () => {}),
     ...cambios,
@@ -190,14 +190,18 @@ describe('documentos', () => {
 });
 
 describe('vinculación con WhatsApp y envío a revisión', () => {
-  it('genera un código de 6 dígitos y guarda solo su hash', async () => {
+  it('genera un código de 6 dígitos y lo fija con la función de la base (hash con el expediente)', async () => {
     const dep = dependencias();
     const r = await crearApiPortal(dep).request('/codigo-whatsapp', { method: 'POST', headers: auth() });
     const json = await r.json();
     expect(json.codigo).toMatch(/^\d{6}$/);
     expect(json.enlaceWhatsapp).toBe(`https://wa.me/50255550000?text=${json.codigo}`);
-    const [, guardado] = (dep.guardarCodigoWhatsapp as any).mock.calls[0];
-    expect(guardado).toBe(hash(json.codigo));
+    const [expedienteId, codigo, minutos] = (dep.guardarCodigoWhatsapp as any).mock.calls[0];
+    expect(codigo).toBe(json.codigo);
+    expect(minutos).toBe(30);
+    expect(typeof expedienteId).toBe('string');
+    // el vencimiento que se muestra es el que fijó la base
+    expect(json.expiraEn).toBe('2026-11-16T18:30:00.000Z');
   });
 
   it('sin canal de WhatsApp activo, el portal sigue siendo el único canal', async () => {

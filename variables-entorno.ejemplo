@@ -39,3 +39,7 @@ PLATAFORMA_ADMINS=correo@ejemplo.com
 # Plataforma (apps/plataforma y /api/plataforma)
 PLATAFORMA_ORIGEN=https://plataforma.<dominio>   # CORS de la app de administración
 META_APP_ID=                                     # registro integrado de Meta (proveedor tecnológico)
+
+# Ancla diaria de la bitácora (opcional): URL que recibe {organizacionId, secuencia, hash, registradaEn}
+# para conservar el último eslabón fuera de la base (almacenamiento inmutable o sellado de tiempo).
+ANCLA_BITACORA_URL=

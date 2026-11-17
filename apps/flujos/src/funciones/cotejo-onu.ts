@@ -5,7 +5,6 @@ import { config } from '../config.js';
 import { db, notificar, sinError } from '../datos.js';
 import { cargarListaVigente, planificarActualizacion } from '../lista-onu.js';
 
-const HORA = 3_600_000;
 
 /**
  * Registra el resultado de un cotejo. Si hay posibles coincidencias, abre en
@@ -37,14 +36,13 @@ async function registrarResultado(
   if (!coincidencias.length) return;
 
   const verificacionId = (verificacion as { id: string }).id;
-  const alerta = await sinError(db().from('alertas').insert({
-    organizacion_id: organizacionId,
-    expediente_id: expedienteId,
-    senal: 'ONU_POSIBLE',
-    descripcion: 'Posible coincidencia con las listas del Consejo de Seguridad (art. 43). Disponga la coincidencia; si se confirma, limite con efecto preventivo la disposición de fondos o activos bajo su administración y comunique por escrito al Ministerio Público dentro de las 24 horas.',
-    evidencia: { verificacionId, nombre: consulta.nombre, coincidencias: coincidencias.length },
-    vence_en: new Date(detectadaEn.getTime() + 24 * HORA).toISOString(),
-  }).select('id').single());
+  // La alerta ONU_POSIBLE la abre la base al registrar la verificación
+  // (disparador verificaciones_alerta, vencimiento = detección + 24 h). Si se
+  // insertara otra aquí, la base la descarta por duplicada y .single() fallaría,
+  // reintentando el paso; solo se recupera la que ya existe.
+  const alerta = await sinError(db().from('alertas').select('id')
+    .eq('expediente_id', expedienteId).eq('senal', 'ONU_POSIBLE')
+    .contains('evidencia', { verificacionId }).limit(1).single());
   // Aviso solo a cumplimiento. El cliente y el área comercial no se enteran (art. 38).
   await notificar(organizacionId, 'cumplimiento', 'Posible coincidencia en lista de la ONU: plazo de 24 horas en curso',
     `${consulta.nombre}: ${coincidencias.length} posible(s) coincidencia(s). El plazo del art. 43 corre desde la detección.`,

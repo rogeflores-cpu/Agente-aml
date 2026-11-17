@@ -8,7 +8,7 @@ import {
   type ClienteClaude,
 } from '@agente-aml/agente';
 import { MENSAJE_NO_EDITABLE, politicaEdicion } from './cotejos.js';
-import { db, notificar, sinError } from './datos.js';
+import { conActor, db, notificar, sinError } from './datos.js';
 import { cargarEntradaRevision, emitirCotejosPendientes, sincronizarPendientes } from './repositorio.js';
 
 /** Límite por archivo: la lectura con Claude no admite imágenes grandes (B3). */
@@ -26,7 +26,17 @@ export interface DocumentoProcesado {
  * Guarda el archivo con su sello SHA-256, identifica qué documento es, lee sus
  * datos, prellena el expediente y recalcula los pendientes.
  */
-export async function procesarDocumento(
+export function procesarDocumento(
+  claude: ClienteClaude,
+  expedienteId: string,
+  archivo: { bytes: Buffer; mime: string; canal: 'whatsapp' | 'web'; pista?: string },
+): Promise<DocumentoProcesado> {
+  // En la bitácora, lo que se registra al leer el documento lo hizo el agente
+  return conActor({ tipo: 'agente', id: `extraccion:${archivo.canal}:${expedienteId}` },
+    () => procesarDocumentoComoAgente(claude, expedienteId, archivo));
+}
+
+async function procesarDocumentoComoAgente(
   claude: ClienteClaude,
   expedienteId: string,
   archivo: { bytes: Buffer; mime: string; canal: 'whatsapp' | 'web'; pista?: string },
@@ -40,7 +50,7 @@ export async function procesarDocumento(
   }
   const entrada = await cargarEntradaRevision(expedienteId);
   const org = entrada.base.organizacion_id;
-  const politica = politicaEdicion(entrada.base.estado);
+  const politica = politicaEdicion(entrada.base.estado_aparente);
   if (politica === 'rechazar') return { nota: `El expediente ya no admite documentos. Responde al cliente exactamente: "${MENSAJE_NO_EDITABLE}"` };
   const sha256 = createHash('sha256').update(archivo.bytes).digest('hex');
   const doc: ArchivoDocumento = { base64: archivo.bytes.toString('base64'), mime: mime as ArchivoDocumento['mime'] };

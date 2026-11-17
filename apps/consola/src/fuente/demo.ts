@@ -296,6 +296,9 @@ export function fuenteDemo(): Fuente {
     async decidir(id, d) {
       exigirCumplimiento();
       exigirTexto(d.justificacion, 'Justificación');
+      if (rol === 'oficial_suplente' && (d.motivoSuplencia ?? '').trim().length < 10) {
+        throw new Error('Como oficial suplente, indique el motivo por el que decide en lugar del titular.');
+      }
       const e = buscar(id);
       const aprueba = d.tipo === 'aprobar' || d.tipo === 'aprobar_diferida';
       if (aprueba && e.verificaciones.some((v) => v.resultado === 'posible_coincidencia' || v.resultado === 'coincidencia_confirmada')) {

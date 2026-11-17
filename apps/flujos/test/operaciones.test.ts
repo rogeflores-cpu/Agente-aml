@@ -26,6 +26,7 @@ describe('API de operaciones', () => {
       ['POST', '/api/operaciones/operaciones'],
       ['POST', '/api/operaciones/expedientes/x/reenviar-enlace'],
       ['POST', '/api/operaciones/pagos-efectivo'],
+      ['POST', '/api/operaciones/operaciones/x/cerrar'],
     ]) {
       const r = await app.request(ruta, { method: metodo, body: '{}' });
       expect(r.status).toBe(401);

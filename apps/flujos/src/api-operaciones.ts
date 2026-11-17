@@ -136,19 +136,25 @@ apiOperaciones.post('/operaciones', async (c) => {
 });
 
 // ------------------------------------------------------- reenviar enlace
-const ESTADOS_FINALES = ['aprobado', 'aprobado_condicionado', 'rechazado', 'abstenido'];
+/**
+ * Se usa el estado comercial (aml.expedientes.estado_comercial), que la base
+ * mantiene fijo cuando cumplimiento abre un examen después de resolver. Con el
+ * estado real, un expediente aprobado y luego en examen volvía a admitir el
+ * reenvío y delataba el examen al área comercial (art. 38).
+ */
+export const ESTADOS_COMERCIALES_FINALES = ['aprobado', 'no_aprobado'];
 
 apiOperaciones.post('/expedientes/:id/reenviar-enlace', async (c) => {
   const exp = (await sinError(
     db().from('expedientes')
-      .select('id, organizacion_id, estado, contacto_nombre, contacto_telefono, organizaciones(subdominio, nombre_comercial, marca)')
+      .select('id, organizacion_id, estado_comercial, contacto_nombre, contacto_telefono, organizaciones(subdominio, nombre_comercial, marca)')
       .eq('id', c.req.param('id')).maybeSingle(),
   )) as any;
   if (!exp) return c.json({ error: 'Expediente no encontrado' }, 404);
   const rol = await rolEn(exp.organizacion_id, c.get('usuarioId'));
   if (!rol || !ROLES_OPERATIVOS.includes(rol)) return c.json({ error: 'Expediente no encontrado' }, 404);
   // Mismo trato para cualquier estado en curso, incluido el examen (art. 38).
-  if (ESTADOS_FINALES.includes(exp.estado)) return c.json({ error: 'El expediente ya fue resuelto' }, 409);
+  if (ESTADOS_COMERCIALES_FINALES.includes(exp.estado_comercial)) return c.json({ error: 'El expediente ya fue resuelto' }, 409);
 
   const org = exp.organizaciones;
   const enlace = nuevoEnlace(org.subdominio, config.dominioPortal, config.enlaceVigenciaDias);
@@ -195,4 +201,20 @@ apiOperaciones.post('/pagos-efectivo', async (c) => {
   if (error) return c.json({ error: error.message }, error.code === '42501' ? 403 : 400);
   // Respuesta mínima: el control del umbral lo revisa cumplimiento.
   return c.json({ ok: true }, 201);
+});
+
+// ------------------------------------------------- cerrar la operación
+// Fin de la relación (art. 30: el plazo de conservación corre desde aquí). La
+// base valida el rol (cualquier miembro activo salvo el auditor), que la
+// operación siga abierta y fija fin_relacion en sus expedientes.
+apiOperaciones.post('/operaciones/:id/cerrar', async (c) => {
+  const cuerpo = z.object({ estado: z.enum(['cerrada', 'cancelada']) }).safeParse(await c.req.json().catch(() => ({})));
+  if (!cuerpo.success) return invalido(c, cuerpo.error);
+  const { error } = await comoUsuario(c).rpc('cerrar_operacion', { p_operacion: c.req.param('id'), p_estado: cuerpo.data.estado });
+  if (error) {
+    if (error.code === '42501') return c.json({ error: 'Operación no encontrada' }, 404); // B5: no revelar otras organizaciones
+    if (error.code === '22023') return c.json({ error: error.message }, 400);
+    return c.json({ error: error.message }, 409);
+  }
+  return c.json({ ok: true });
 });

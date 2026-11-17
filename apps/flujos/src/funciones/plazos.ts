@@ -48,15 +48,20 @@ export const posibleCoincidencia = inngest.createFunction(
     }
     if (!d) {
       await step.run('constancia-vencimiento', async () => {
+        // Se agrega la constancia sin borrar la evidencia previa. Si la alerta ya
+        // se cerró (disposición en el último instante), una alerta cerrada no se modifica.
+        const actual = (await sinError(db().from('alertas').select('evidencia').eq('id', alertaId).maybeSingle())) as { evidencia?: Record<string, unknown> } | null;
         await sinError(db().from('alertas')
-          .update({ evidencia: { verificacionId, detectadaEn, plazoVencidoSinDisponer: new Date().toISOString() } })
-          .eq('id', alertaId));
+          .update({ evidencia: { ...(actual?.evidencia ?? {}), verificacionId, detectadaEn, plazoVencidoSinDisponer: new Date().toISOString() } })
+          .eq('id', alertaId).neq('estado', 'cerrada'));
         await notificar(organizacionId, 'cumplimiento', 'Venció el plazo de 24 horas sin disponer la coincidencia',
           'Se dejó constancia en la alerta y en la bitácora.', { expedienteId, prioridad: 'urgente' });
       });
       return { resultado: 'vencido_sin_disponer' };
     }
     if (d.data.resultado === 'descartada') {
+      // La base ya cierra la alerta al disponer (verificaciones_alerta); esto solo
+      // cubre una alerta que hubiera quedado abierta y no toca las cerradas.
       await step.run('cerrar-alerta', () =>
         sinError(db().from('alertas')
           .update({ estado: 'cerrada', cierre: 'Coincidencia descartada por el oficial de cumplimiento (ver la justificación en la verificación).', cerrada_en: new Date().toISOString() })
@@ -85,26 +90,27 @@ export const plazoOnu24h = inngest.createFunction(
       const detectada = (v as { consultado_en?: string } | null)?.consultado_en ?? confirmadaEn;
       const p = plazosArt43(detectada);
       const descripcion = 'Coincidencia confirmada con las listas del Consejo de Seguridad (art. 43). Limite con efecto preventivo la disposición de fondos o activos bajo su administración y comunique por escrito al Ministerio Público, con la documentación, dentro de las 24 horas desde la detección.';
-      const previa = (await sinError(
-        db().from('alertas').select('id').eq('expediente_id', expedienteId).eq('senal', 'ONU_POSIBLE')
-          .contains('evidencia', { verificacionId }).neq('estado', 'cerrada').limit(1).maybeSingle(),
-      )) as { id: string } | null;
-      let id = previa?.id;
-      if (id) {
-        await sinError(db().from('alertas').update({
-          senal: 'ONU_CONFIRMADA', descripcion,
-          evidencia: { verificacionId, detectadaEn: detectada, confirmadaEn },
-        }).eq('id', id));
-      } else {
-        const a = await sinError(db().from('alertas').insert({
+      // La alerta ONU_CONFIRMADA la abre la base al disponer la verificación
+      // (misma transacción). La ONU_POSIBLE quedó cerrada y no se reescribe: su
+      // señal y descripción son inmutables. Si por algún motivo no existe, se
+      // crea; la base fija el vencimiento desde la detección y evita duplicados.
+      const buscar = async () => (await sinError(
+        db().from('alertas').select('id, vence_en').eq('expediente_id', expedienteId).eq('senal', 'ONU_CONFIRMADA')
+          .contains('evidencia', { verificacionId }).order('creado_en', { ascending: false }).limit(1).maybeSingle(),
+      )) as { id: string; vence_en: string } | null;
+      let alerta = await buscar();
+      if (!alerta) {
+        await sinError(db().from('alertas').insert({
           organizacion_id: organizacionId, expediente_id: expedienteId, senal: 'ONU_CONFIRMADA', descripcion,
           evidencia: { verificacionId, detectadaEn: detectada, confirmadaEn }, vence_en: p.vence.toISOString(),
-        }).select('id').single());
-        id = (a as { id: string }).id;
+        }));
+        alerta = await buscar();
       }
+      if (!alerta) throw new Error('No se pudo abrir la alerta ONU_CONFIRMADA');
+      const vence = alerta.vence_en ?? p.vence.toISOString();
       await notificar(organizacionId, 'cumplimiento', 'Coincidencia confirmada: comunicación al Ministerio Público',
-        `El plazo de 24 horas vence el ${p.vence.toISOString()} (contado desde la detección).`, { expedienteId, prioridad: 'urgente' });
-      return { alertaId: id!, vence: p.vence.toISOString() };
+        `El plazo de 24 horas vence el ${vence} (contado desde la detección).`, { expedienteId, prioridad: 'urgente' });
+      return { alertaId: alerta.id, vence };
     });
     const venceEn = new Date(vence);
 
@@ -127,9 +133,11 @@ export const plazoOnu24h = inngest.createFunction(
     if (cerradaFinal) return { resultado: 'cerrada_tras_escalar' };
 
     await step.run('constancia-vencimiento', async () => {
+      // Solo se agrega la constancia: la evidencia previa (detección, confirmación) se conserva
+      const actual = (await sinError(db().from('alertas').select('evidencia').eq('id', alertaId).maybeSingle())) as { evidencia?: Record<string, unknown> } | null;
       await sinError(db().from('alertas')
-        .update({ evidencia: { verificacionId, confirmadaEn, plazoVencido: new Date().toISOString() } })
-        .eq('id', alertaId));
+        .update({ evidencia: { ...(actual?.evidencia ?? {}), verificacionId, confirmadaEn, plazoVencido: new Date().toISOString() } })
+        .eq('id', alertaId).neq('estado', 'cerrada'));
       await notificar(organizacionId, 'cumplimiento', 'Plazo de 24 horas vencido',
         'Se dejó constancia del vencimiento en la alerta y en la bitácora.', { expedienteId, prioridad: 'urgente' });
     });

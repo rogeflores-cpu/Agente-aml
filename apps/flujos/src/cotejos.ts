@@ -42,6 +42,25 @@ export function idEventoCotejo(expedienteId: string, nombre: string, version: st
   return `onu-${expedienteId}-${h}-${version ?? 'sin-version'}`;
 }
 
+/**
+ * Estado que se comporta hacia el cliente (portal y WhatsApp) sin revelar un
+ * examen especial abierto después de resolver (art. 38). El estado real
+ * 'en_examen' se presenta como el que tenía el expediente antes del examen:
+ * en revisión si aún no se había decidido; si ya se había aprobado o no
+ * aprobado (estado_comercial, que la base mantiene fijo durante el examen),
+ * como ese resultado, incluida la verificación diferida aún pendiente.
+ */
+export function estadoAparente(
+  estado: string,
+  estadoComercial: string | null | undefined,
+  ultimaAprobacion: 'aprobar' | 'aprobar_diferida' | null = null,
+): string {
+  if (estado !== 'en_examen') return estado;
+  if (estadoComercial === 'no_aprobado') return 'rechazado';
+  if (estadoComercial === 'aprobado') return ultimaAprobacion === 'aprobar_diferida' ? 'aprobado_condicionado' : 'aprobado';
+  return 'en_revision';
+}
+
 /** Qué pasa cuando el cliente intenta cambiar datos o documentos según el estado del expediente. */
 export type PoliticaEdicion = 'permitir' | 'permitir_y_avisar' | 'rechazar';
 

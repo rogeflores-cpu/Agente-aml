@@ -24,6 +24,12 @@ export const config = {
   get dominioPortal() { return requerida('PORTAL_DOMINIO'); },
   /** URL del XML de la lista consolidada del Consejo de Seguridad de la ONU. */
   get onuListaUrl() { return requerida('ONU_LISTA_URL'); },
+  /**
+   * Opcional: URL a la que se envía cada día el ancla de la bitácora (último
+   * eslabón por organización) para conservarla fuera de la base, p. ej. un
+   * almacenamiento con retención inmutable o un servicio de sellado de tiempo.
+   */
+  anclaBitacoraUrl: process.env.ANCLA_BITACORA_URL ?? '',
   enlaceVigenciaDias: Number(process.env.ENLACE_VIGENCIA_DIAS ?? 7),
   recordatorios: { cantidad: 3, intervalo: '2d' as const },
 };

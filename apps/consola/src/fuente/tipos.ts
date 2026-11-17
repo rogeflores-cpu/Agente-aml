@@ -88,6 +88,8 @@ export interface NuevaDecision {
   justificacion: string;
   condiciones?: string;
   verificacionDiferidaHasta?: string;
+  /** Obligatorio cuando decide el oficial suplente: por qué actúa en lugar del titular. */
+  motivoSuplencia?: string;
 }
 
 // ---------------------------------------------------------------- vista operativa

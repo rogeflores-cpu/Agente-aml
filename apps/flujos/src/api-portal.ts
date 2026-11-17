@@ -11,7 +11,7 @@ import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { cors } from 'hono/cors';
 import { z } from 'zod';
-import { db, sinError } from './datos.js';
+import { conActor, db, sinError } from './datos.js';
 import { procesarDocumento } from './documentos-entrantes.js';
 import { nuevoCodigoVinculacion } from './enlaces.js';
 import { crearPuertoConEventos } from './repositorio.js';
@@ -54,7 +54,12 @@ export interface DependenciasPortal {
   guardarMensaje(e: ExpedienteEnlace, direccion: 'entrante' | 'saliente', texto: string, tipo?: string): Promise<void>;
   atender(puerto: PuertoExpediente, turno: Turno): ReturnType<typeof atenderTurno>;
   procesarDocumento(expedienteId: string, archivo: { bytes: Buffer; mime: string; pista?: string }): Promise<{ nota: string }>;
-  guardarCodigoWhatsapp(expedienteId: string, hash: string, expiraEn: string): Promise<void>;
+  /**
+   * Fija el código de vinculación con aml.fijar_codigo_vinculacion: la base
+   * guarda sha256(expediente:código), que es lo que compara vincular_whatsapp.
+   * Devuelve el vencimiento que fijó la base.
+   */
+  guardarCodigoWhatsapp(expedienteId: string, codigo: string, minutos: number): Promise<string>;
   numeroWhatsapp(organizacionId: string): Promise<string | null>;
   avisarReemplazo(e: ExpedienteEnlace): Promise<void>;
 }
@@ -140,7 +145,8 @@ export function crearApiPortal(dep: DependenciasPortal, opciones: { limiteMinuto
     }
     c.set('enlace', enlace);
     c.set('tokenHash', tokenHash);
-    await next();
+    // Las escrituras de esta solicitud quedan en la bitácora a nombre del cliente
+    await conActor({ tipo: 'cliente', id: `portal:${enlace.expedienteId}` }, () => next());
   });
 
   app.onError((e, c) => {
@@ -205,12 +211,12 @@ export function crearApiPortal(dep: DependenciasPortal, opciones: { limiteMinuto
     const numero = await dep.numeroWhatsapp(enlace.organizacionId);
     if (!numero) return c.json({ error: 'Por ahora puede continuar solo por este portal.' }, 409);
     const codigo = nuevoCodigoVinculacion();
-    await dep.guardarCodigoWhatsapp(enlace.expedienteId, codigo.hash, codigo.expiraEn);
+    const expiraEn = await dep.guardarCodigoWhatsapp(enlace.expedienteId, codigo.codigo, 30);
     const digitos = numero.replace(/\D/g, '');
     return c.json({
       codigo: codigo.codigo,
       numero,
-      expiraEn: codigo.expiraEn,
+      expiraEn,
       enlaceWhatsapp: `https://wa.me/${digitos}?text=${codigo.codigo}`,
     });
   });
@@ -276,10 +282,11 @@ export function dependenciasSupabase(): DependenciasPortal {
     procesarDocumento: (expedienteId, a) =>
       procesarDocumento(clienteClaude(), expedienteId, { bytes: a.bytes, mime: a.mime, canal: 'web', pista: a.pista }),
 
-    async guardarCodigoWhatsapp(expedienteId, hash, expiraEn) {
-      await sinError(db().from('expedientes')
-        .update({ codigo_vinculacion_hash: hash, codigo_vinculacion_expira: expiraEn })
-        .eq('id', expedienteId));
+    async guardarCodigoWhatsapp(expedienteId, codigo, minutos) {
+      // Antes se guardaba sha256(código) sin el expediente, que vincular_whatsapp
+      // nunca encontraba: la vinculación por WhatsApp era imposible.
+      const expira = await sinError(db().rpc('fijar_codigo_vinculacion', { p_expediente: expedienteId, p_codigo: codigo, p_minutos: minutos }));
+      return String(expira);
     },
 
     async numeroWhatsapp(organizacionId) {

@@ -7,8 +7,10 @@ insert into aml.organizaciones (id, nombre_legal, nombre_comercial, nit, subdomi
 values ('00000000-0000-0000-0000-0000000000c3', 'Inmuebles Prueba, S.A.', 'Inmuebles Prueba', '1234567-8', 'inmuebles-prueba');
 
 -- 1. Metodología: se aprueba una sola vez; luego no se modifica ni se borra
+-- (Ajuste 17/11/2026: la base valida los parámetros al aprobar; '{"version": 1}'
+-- ya no se puede aprobar.)
 insert into aml.configuraciones_riesgo (organizacion_id, version, parametros)
-values ('00000000-0000-0000-0000-0000000000c3', 1, '{"version": 1}');
+values ('00000000-0000-0000-0000-0000000000c3', 1, '{"pesosFactores":{"cliente":0.4,"geografia":0.2,"canal":0.15,"producto":0.25},"umbrales":{"medio":30,"alto":55},"actualizacionMeses":{"bajo":36,"medio":24,"alto":12},"umbralEfectivoUsd":10000}');
 
 do $$ begin
   begin

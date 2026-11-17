@@ -15,7 +15,11 @@ insert into aml.miembros (organizacion_id, usuario_id, rol) values
   ('00000000-0000-0000-0000-0000000000b2', '33333333-3333-3333-3333-333333333333', 'oficial');
 
 insert into aml.configuraciones_riesgo (id, organizacion_id, version, parametros, aprobada_por, aprobada_en)
-values ('00000000-0000-0000-0000-00000000c0f1', '00000000-0000-0000-0000-0000000000a1', 1, '{}', 'Consejo de Administración', current_date);
+values ('00000000-0000-0000-0000-00000000c0f1', '00000000-0000-0000-0000-0000000000a1', 1,
+        '{"pesosFactores":{"cliente":0.4,"geografia":0.2,"canal":0.15,"producto":0.25},"umbrales":{"medio":30,"alto":55},"actualizacionMeses":{"bajo":36,"medio":24,"alto":12},"umbralEfectivoUsd":10000}',
+        'Consejo de Administración', current_date);
+-- (Ajuste 17/11/2026: desde la migración de correcciones la base valida los
+-- parámetros de una metodología aprobada; antes aceptaba '{}'.)
 
 -- 1. El ejecutivo registra una operación con dos partes ----------------------
 set local role authenticated;
@@ -57,7 +61,11 @@ set local request.jwt.claim.sub = '33333333-3333-3333-3333-333333333333';
 do $$ begin
   if (select count(*) from aml.expedientes) <> 0 then raise exception 'fuga entre organizaciones (expedientes)'; end if;
   if (select count(*) from aml.expedientes_comercial) <> 0 then raise exception 'fuga entre organizaciones (vista)'; end if;
-  if (select count(*) from aml.bitacora) <> 0 then raise exception 'fuga entre organizaciones (bitácora)'; end if;
+  -- (Ajuste 17/11/2026: ahora se auditan organizaciones y miembros, así que la
+  -- organización B tiene eventos propios; se verifica que no vea los de A.)
+  if (select count(*) from aml.bitacora where organizacion_id <> '00000000-0000-0000-0000-0000000000b2') <> 0 then
+    raise exception 'fuga entre organizaciones (bitácora)';
+  end if;
 end $$;
 
 -- 5. Verificación con posible coincidencia bloquea la aprobación -----------
@@ -93,6 +101,20 @@ update aml.verificaciones
    set resultado = 'descartada', dispuesto_por = '22222222-2222-2222-2222-222222222222', dispuesto_en = now(),
        justificacion = 'Fecha de nacimiento y nacionalidad distintas a las del listado'
  where nombre_consultado = 'Ana Pérez';
+
+-- (Ajuste 17/11/2026: antes se aprobaba un expediente 'invitado', sin nombre
+-- identificado y sin evaluación de riesgo, lo que la revisión independiente
+-- marcó como inseguro (A1, M4). Ahora el expediente pasa por captura y
+-- revisión, el nombre cotejado es el vigente y hay una evaluación posterior.)
+reset role;
+select aml.guardar_dato((select expediente_id from creada where parte = 'comprador'),
+                        'cliente.nombre_completo', '"Ana Pérez"', 'cliente', null, null, null, 'cliente');
+update aml.expedientes set estado = 'en_revision' where id = (select expediente_id from creada where parte = 'comprador');
+insert into aml.evaluaciones_riesgo (organizacion_id, expediente_id, configuracion_id, entrada, puntajes, puntaje_total, nivel_calculado, medidas)
+select '00000000-0000-0000-0000-0000000000a1', expediente_id, '00000000-0000-0000-0000-00000000c0f1', '{}', '{}', 10, 'bajo', 'estandar'
+  from creada where parte = 'comprador';
+set local role authenticated;
+set local request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
 
 insert into aml.decisiones (organizacion_id, expediente_id, tipo, justificacion, decidido_por)
 select '00000000-0000-0000-0000-0000000000a1', expediente_id, 'aprobar',
@@ -185,9 +207,8 @@ end $$;
 insert into aml.canales_whatsapp (organizacion_id, waba_id, phone_number_id, numero_visible, nombre_visible, estado)
 values ('00000000-0000-0000-0000-0000000000a1', 'WABA1', 'PNID-A1', '+502 5555 0000', 'Demo Inmuebles', 'activo'),
        ('00000000-0000-0000-0000-0000000000b2', 'WABA2', 'PNID-B2', '+502 5555 9999', 'Otra', 'activo');
-update aml.expedientes set codigo_vinculacion_hash = encode(digest('482913', 'sha256'), 'hex'),
-                           codigo_vinculacion_expira = now() + interval '30 minutes'
- where id = (select expediente_id from creada where parte = 'comprador');
+-- (Ajuste 17/11/2026: el código ahora se fija con su sal por expediente.)
+select aml.fijar_codigo_vinculacion((select expediente_id from creada where parte = 'comprador'), '482913', 30);
 do $$ begin
   if aml.vincular_whatsapp('PNID-B2', '50255550001', '482913') is not null then
     raise exception 'se vinculó desde el número de otra organización';

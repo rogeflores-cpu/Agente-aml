@@ -39,15 +39,21 @@ do $$ begin
   ) then raise exception 'la vista expone columnas de cumplimiento'; end if;
 end $$;
 
--- 3. El examen y el listo para decidir se ven como "en revisión" (art. 38)
+-- 3. Lo que ve el ejecutivo no delata el examen (art. 38)
+-- (Ajuste 17/11/2026: antes se esperaba que 'en_examen' se viera como
+-- 'en_revision'; con el estado comercial estable, abrir un examen no cambia
+-- nada de lo que ve el ejecutivo: sigue en el estado anterior.)
 reset role;
 update aml.expedientes set estado = 'en_examen' where id = (select expediente_id from op where parte = 'comprador');
 update aml.expedientes set estado = 'listo_para_decision' where id = (select expediente_id from op where parte = 'vendedor');
 set local role authenticated;
 set local request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
 do $$ begin
-  if exists (select 1 from aml.operaciones_comercial where estado <> 'en_revision') then
-    raise exception 'la vista revela el estado real';
+  if (select estado from aml.operaciones_comercial where parte = 'comprador') <> 'invitado' then
+    raise exception 'la vista revela el examen';
+  end if;
+  if (select estado from aml.operaciones_comercial where parte = 'vendedor') <> 'en_revision' then
+    raise exception 'listo para decidir debe verse como en revisión';
   end if;
 end $$;
 

@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { config } from './config.js';
+import { correoAvisoCumplimiento, correoDisponible, correoValido, enviarCorreo } from './correo.js';
 
 let cliente: SupabaseClient<any, 'aml', any> | undefined;
 
@@ -78,4 +79,41 @@ export async function notificar(
       prioridad: opciones.prioridad ?? 'normal',
     }),
   );
+  // Los avisos de cumplimiento de prioridad alta o urgente también van por correo al
+  // oficial y al suplente (p. ej., el plazo de 24 horas del art. 43). Un fallo del
+  // correo no impide el aviso en la consola.
+  if (destinatarioRol === 'cumplimiento' && (opciones.prioridad === 'alta' || opciones.prioridad === 'urgente') && correoDisponible()) {
+    try {
+      await avisarPorCorreo(organizacionId, asunto, opciones.prioridad, opciones.expedienteId);
+    } catch (e) {
+      console.error('No se pudo enviar el aviso de cumplimiento por correo:', (e as Error).message);
+    }
+  }
+}
+
+/** Correos de los oficiales (titular y suplente) activos de la organización. */
+export async function correosCumplimiento(organizacionId: string): Promise<string[]> {
+  const miembros = (await sinError(
+    db().from('miembros').select('usuario_id').eq('organizacion_id', organizacionId).eq('activo', true)
+      .in('rol', ['oficial', 'oficial_suplente']),
+  )) as { usuario_id: string }[];
+  const correos: string[] = [];
+  for (const m of miembros ?? []) {
+    const { data } = await db().auth.admin.getUserById(m.usuario_id);
+    const correo = data?.user?.email;
+    if (correoValido(correo) && data?.user?.email_confirmed_at) correos.push(correo);
+  }
+  return correos;
+}
+
+async function avisarPorCorreo(organizacionId: string, asunto: string, prioridad: 'alta' | 'urgente', expedienteId?: string) {
+  const [org, destinatarios] = await Promise.all([
+    sinError(db().from('organizaciones').select('nombre_comercial').eq('id', organizacionId).single()),
+    correosCumplimiento(organizacionId),
+  ]);
+  const organizacion = (org as { nombre_comercial: string }).nombre_comercial;
+  const correo = correoAvisoCumplimiento({ organizacion, asuntoAviso: asunto, prioridad, consola: config.consolaOrigen, expedienteId });
+  for (const para of destinatarios) {
+    await enviarCorreo({ para, nombreRemitente: 'Cumplimiento AML', ...correo });
+  }
 }

@@ -151,7 +151,7 @@ export interface NuevaOperacion {
 
 export interface NuevoPagoEfectivo { expedienteId: string; fecha: string; monto: number; moneda: string; tipoCambioUsd: number }
 
-export interface ResultadoReenvio { canal: 'whatsapp' | 'manual'; url?: string; expiraEn: string }
+export interface ResultadoReenvio { canal: 'whatsapp' | 'correo' | 'manual'; url?: string; expiraEn: string }
 
 export const ROLES_CUMPLIMIENTO: Rol[] = ['oficial', 'oficial_suplente', 'auditor'];
 export const ROLES_OPERATIVOS: Rol[] = ['administrador', 'ejecutivo'];

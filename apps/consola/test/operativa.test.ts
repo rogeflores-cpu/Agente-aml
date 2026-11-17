@@ -69,12 +69,13 @@ describe('vista operativa (art. 38)', () => {
     expect((await f.bandeja('org-demo')).filter((x) => x.codigoOperacion === codigo)).toHaveLength(2);
   });
 
-  it('reenviar enlace: por WhatsApp si hay teléfono, manual si no; no en expedientes resueltos', async () => {
+  it('reenviar enlace: por WhatsApp si hay teléfono, por correo si no; no en expedientes resueltos', async () => {
     const f = await comoEjecutivo();
     expect((await f.reenviarEnlace('exp-e')).canal).toBe('whatsapp');
-    const manual = await f.reenviarEnlace('exp-b');
-    expect(manual.canal).toBe('manual');
-    expect(manual.url).toMatch(/^https:\/\//);
+    const porCorreo = await f.reenviarEnlace('exp-b');
+    expect(porCorreo.canal).toBe('correo');
+    // El enlace con el token no se muestra al ejecutivo si ya salió por un canal
+    expect(porCorreo.url).toBeUndefined();
     await expect(f.reenviarEnlace('exp-d')).rejects.toThrow(/resuelto/);
   });
 

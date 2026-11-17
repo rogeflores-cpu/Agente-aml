@@ -50,6 +50,10 @@ services:
         sync: false
       - key: ANTHROPIC_API_KEY
         sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: CORREO_REMITENTE
+        value: no-responder@amlconsultingguatemala.com
       - key: AML_MODELO_CONVERSACION
         value: claude-haiku-5-5
       - key: AML_MODELO_DOCUMENTOS

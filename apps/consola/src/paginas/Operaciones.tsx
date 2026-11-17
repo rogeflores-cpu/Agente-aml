@@ -57,7 +57,9 @@ export function Operaciones({ fuente, organizacionId }: { fuente: Fuente; organi
       const r = await fuente.reenviarEnlace(p.expedienteId);
       setAviso(r.canal === 'whatsapp'
         ? { tipo: 'ok', texto: `Se envió un nuevo enlace por WhatsApp a ${p.nombre}. Vence el ${fecha(r.expiraEn)}.` }
-        : { tipo: 'aviso', texto: `${p.nombre} no tiene WhatsApp disponible. Comparta este enlace por otro medio (vence el ${fecha(r.expiraEn)}):`, url: r.url });
+        : r.canal === 'correo'
+          ? { tipo: 'ok', texto: `Se envió un nuevo enlace por correo a ${p.nombre}${p.correo ? ` (${p.correo})` : ''}. Vence el ${fecha(r.expiraEn)}.` }
+          : { tipo: 'aviso', texto: `${p.nombre} no tiene WhatsApp ni correo disponible. Comparta este enlace por otro medio (vence el ${fecha(r.expiraEn)}):`, url: r.url });
     } catch (e) {
       setAviso({ tipo: 'error', texto: (e as Error).message });
     }

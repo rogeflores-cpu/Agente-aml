@@ -420,7 +420,9 @@ export function fuenteDemo(): Fuente {
       const expiraEn = new Date(Date.now() + 7 * 86_400_000).toISOString();
       return e.contacto.telefono
         ? { canal: 'whatsapp' as const, expiraEn }
-        : { canal: 'manual' as const, url: `https://demo-inmuebles.ejemplo.invalid/e/${Math.random().toString(36).slice(2, 12)}`, expiraEn };
+        : e.contacto.correo
+          ? { canal: 'correo' as const, expiraEn }
+          : { canal: 'manual' as const, url: `https://demo-inmuebles.ejemplo.invalid/e/${Math.random().toString(36).slice(2, 12)}`, expiraEn };
     },
 
     async registrarPagoEfectivo(p) {

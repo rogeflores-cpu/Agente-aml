@@ -43,3 +43,8 @@ META_APP_ID=                                     # registro integrado de Meta (p
 # Ancla diaria de la bitácora (opcional): URL que recibe {organizacionId, secuencia, hash, registradaEn}
 # para conservar el último eslabón fuera de la base (almacenamiento inmutable o sellado de tiempo).
 ANCLA_BITACORA_URL=
+
+# Correo (Resend): enlaces del cliente sin WhatsApp y avisos urgentes a cumplimiento.
+# El dominio del remitente debe estar verificado en Resend (registros SPF y DKIM).
+RESEND_API_KEY=
+CORREO_REMITENTE=no-responder@amlconsultingguatemala.com

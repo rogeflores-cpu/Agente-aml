@@ -53,21 +53,39 @@ directamente en cada servicio).
    npx supabase db push
    ```
 
-   `db push` aplica en orden los 16 archivos de `supabase/migrations` y lleva el registro de cuáles ya
+   `db push` aplica en orden los 17 archivos de `supabase/migrations` y lleva el registro de cuáles ya
    se aplicaron. No ejecute `supabase/tests/00_stub_supabase.sql` en el proyecto real: es solo para
    pruebas locales.
 4. **Settings → API → Exposed schemas**: agregue `aml`.
 5. **Authentication → Sign In / Providers**: desactive *Allow new users to sign up* (los usuarios solo
    entran por invitación). **URL Configuration**: *Site URL* = `https://consola.amlconsultingguatemala.com`;
    en *Redirect URLs* agregue también `https://plataforma.amlconsultingguatemala.com`.
-6. **Authentication → Emails → SMTP**: configure un remitente propio (por ejemplo
-   `no-responder@amlconsultingguatemala.com` con Resend u otro proveedor). El correo de prueba de
-   Supabase tiene un límite muy bajo por hora y las invitaciones dejarían de llegar.
+6. **Authentication → Emails → SMTP**: use el mismo remitente del paso 1 B (Resend:
+   servidor `smtp.resend.com`, puerto 465, usuario `resend`, contraseña = la API key). El correo de
+   prueba de Supabase tiene un límite muy bajo por hora y las invitaciones dejarían de llegar.
 7. **Storage**: confirme que el bucket `expedientes` existe y **no es público**.
 8. **Database → Extensions**: confirme que **Vault** (`supabase_vault`) está activa (guarda el token de
    WhatsApp de cada inmobiliaria).
 9. Copie de **Settings → API**: la URL del proyecto, la llave pública (`anon`) y la llave de servicio
    (`service_role`). La de servicio solo va en Render, en el servicio `aml-api`.
+
+### 1 B. Correo electrónico con Resend *(usted crea la cuenta; le dicto los registros DNS)*
+
+Mientras WhatsApp no esté aprobado, el correo es el canal con el que el cliente recibe su enlace y sus
+recordatorios, y el oficial recibe los avisos urgentes (plazo de 24 horas del art. 43, bloqueos). Los
+correos al oficial no llevan datos del cliente: solo el asunto del aviso y el enlace a la consola.
+
+1. En resend.com, cree la cuenta a nombre de la empresa.
+2. **Domains → Add domain**: `amlconsultingguatemala.com`. Resend muestra tres o cuatro registros DNS
+   (SPF, DKIM y, opcional, DMARC). Agréguelos en el proveedor del dominio; la verificación suele tardar
+   minutos.
+3. **API Keys → Create**: permiso *Sending access*, solo para ese dominio. Se guarda en Render como
+   `RESEND_API_KEY` (paso 5).
+4. El remitente es `no-responder@amlconsultingguatemala.com` (`CORREO_REMITENTE`, ya en `render.yaml`).
+   Cada correo al cliente sale con el nombre visible de la inmobiliaria.
+
+Orden de envío del enlace al cliente: WhatsApp si la inmobiliaria tiene número activo y el cliente dio
+teléfono; si no, correo; si tampoco hay correo, el ejecutivo recibe el enlace para compartirlo a mano.
 
 ### 2. Anthropic *(usted)*
 
@@ -108,6 +126,7 @@ que fusionar la rama de trabajo (`claude/exciting-newton-25fiy2`) en `main` con 
    | aml-api | `META_GRAPH_API_VERSION` | versión vigente de la Graph API (p. ej. `v21.0` o la que indique Meta) |
    | aml-api | `INNGEST_EVENT_KEY`, `INNGEST_SIGNING_KEY` | paso 3.2 |
    | aml-api | `ANTHROPIC_API_KEY` | paso 2.1 |
+   | aml-api | `RESEND_API_KEY` | paso 1 B.3 |
    | aml-api | `PLATAFORMA_ADMINS` | correos de los administradores de la plataforma, separados por coma |
    | aml-api | `ANCLA_BITACORA_URL` | opcional; vacío por ahora |
    | consola y plataforma | `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` | URL y llave `anon` |
@@ -146,7 +165,7 @@ El sitio web actual de amlconsultingguatemala.com no se toca: solo se agregan su
 4. **Designaciones 1373**: si hay alguna comunicada, regístrela. Mientras no haya ninguna, solo se
    exige el cotejo con la lista de la ONU.
 
-### 8. Meta y WhatsApp *(después de la verificación del negocio)*
+### 8. Meta y WhatsApp *(cuando Meta apruebe; el piloto no lo espera)*
 
 1. En developers.facebook.com, cree una app de tipo **Negocio** vinculada al portafolio verificado de
    AML Consulting Guatemala y agregue el producto **WhatsApp**.
@@ -180,6 +199,8 @@ El sitio web actual de amlconsultingguatemala.com no se toca: solo se agregan su
 - [ ] Supabase: registro público desactivado, bucket `expedientes` privado, esquema `aml` expuesto.
 - [ ] Consola y plataforma abren con candado (HTTPS) y aceptan el inicio de sesión.
 - [ ] Un enlace de prueba del portal abre con la marca de la inmobiliaria.
+- [ ] El correo de bienvenida llega a la bandeja de entrada (no a spam) con el nombre de la inmobiliaria.
+- [ ] Un aviso urgente de prueba llega por correo al oficial y abre el expediente en la consola.
 - [ ] El webhook de Meta quedó verificado (después del paso 8).
 
 ## Respaldo y continuidad

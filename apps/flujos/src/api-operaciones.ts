@@ -6,6 +6,7 @@ import { inngest } from './cliente-inngest.js';
 import { config } from './config.js';
 import { canalDeOrganizacion, db, sinError } from './datos.js';
 import { nuevoEnlace } from './enlaces.js';
+import { correoCliente, correoDisponible, correoValido, enviarCorreo } from './correo.js';
 import { enviarPlantilla } from './whatsapp.js';
 
 /**
@@ -147,7 +148,7 @@ export const ESTADOS_COMERCIALES_FINALES = ['aprobado', 'no_aprobado'];
 apiOperaciones.post('/expedientes/:id/reenviar-enlace', async (c) => {
   const exp = (await sinError(
     db().from('expedientes')
-      .select('id, organizacion_id, estado_comercial, contacto_nombre, contacto_telefono, organizaciones(subdominio, nombre_comercial, marca)')
+      .select('id, organizacion_id, estado_comercial, contacto_nombre, contacto_telefono, contacto_correo, organizaciones(subdominio, nombre_comercial, marca)')
       .eq('id', c.req.param('id')).maybeSingle(),
   )) as any;
   if (!exp) return c.json({ error: 'Expediente no encontrado' }, 404);
@@ -160,13 +161,29 @@ apiOperaciones.post('/expedientes/:id/reenviar-enlace', async (c) => {
   const enlace = nuevoEnlace(org.subdominio, config.dominioPortal, config.enlaceVigenciaDias);
   await sinError(db().from('expedientes').update({ enlace_token_hash: enlace.tokenHash, enlace_expira_en: enlace.expiraEn }).eq('id', exp.id));
 
+  const nombreVisible = (org.marca?.nombre_visible ?? org.nombre_comercial) as string;
   const canal = exp.contacto_telefono ? await canalDeOrganizacion(exp.organizacion_id) : null;
   if (!canal) {
-    // Sin WhatsApp: el ejecutivo comparte el enlace por otro medio.
+    if (correoDisponible() && correoValido(exp.contacto_correo)) {
+      try {
+        const id = await enviarCorreo({
+          para: exp.contacto_correo, nombreRemitente: nombreVisible,
+          ...correoCliente('recordatorio', { nombre: exp.contacto_nombre, organizacion: nombreVisible, enlace: enlace.url, venceEn: enlace.expiraEn, color: org.marca?.color_primario }),
+        });
+        await sinError(db().from('mensajes').insert({
+          organizacion_id: exp.organizacion_id, expediente_id: exp.id, direccion: 'saliente', canal: 'correo',
+          correo_id: id, tipo: 'plantilla', plantilla: 'recordatorio',
+        }));
+        return c.json({ canal: 'correo', expiraEn: enlace.expiraEn });
+      } catch (e) {
+        console.error('No se pudo enviar el enlace por correo:', (e as Error).message);
+        // Si el correo falla, el ejecutivo lo comparte a mano
+      }
+    }
+    // Sin WhatsApp ni correo: el ejecutivo comparte el enlace por otro medio.
     return c.json({ canal: 'manual', url: enlace.url, expiraEn: enlace.expiraEn });
   }
   const destino = String(exp.contacto_telefono).replace(/[^\d]/g, '');
-  const nombreVisible = (org.marca?.nombre_visible ?? org.nombre_comercial) as string;
   const id = await enviarPlantilla(canal, destino, 'recordatorio', [exp.contacto_nombre, nombreVisible, enlace.url]);
   await sinError(db().from('mensajes').insert({
     organizacion_id: exp.organizacion_id, expediente_id: exp.id, direccion: 'saliente',

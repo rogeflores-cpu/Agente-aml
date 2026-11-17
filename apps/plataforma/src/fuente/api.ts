@@ -71,6 +71,17 @@ export function fuenteApi(): Fuente {
     },
     // La carga de listas GAFI vive en la API de la consola; se reutiliza.
     async cargarListaGafi(d) { await llamar('/api/consola/plataforma/listas-gafi', d); },
+    async designaciones1373() {
+      return ((await llamar('/api/plataforma/designaciones-1373')).designaciones as any[]).map((d) => ({
+        id: d.id, tipo: d.tipo, nombre: d.nombre, alias: d.alias ?? [], documentos: d.documentos ?? [], fechasNacimiento: d.fechas_nacimiento ?? [],
+        nacionalidades: d.nacionalidades ?? [], autoridad: d.autoridad, referencia: d.referencia, fuenteUrl: d.fuente_url, designadaEl: d.designada_el,
+        cargadaPor: d.cargada_por, cargadaEn: d.cargada_en, revocadaEl: d.revocada_el, revocacionReferencia: d.revocacion_referencia,
+      }));
+    },
+    async registrarDesignacion1373(d) { await llamar('/api/plataforma/designaciones-1373', d); },
+    async revocarDesignacion1373(id, revocadaEl, referencia) {
+      await llamar(`/api/plataforma/designaciones-1373/${id}/revocar`, { revocadaEl, referencia });
+    },
     async avisos() {
       return ((await llamar('/api/plataforma/avisos')).avisos as any[]).map((a) => ({ id: a.id, asunto: a.asunto, cuerpo: a.cuerpo, creadoEn: a.creado_en, atendidoEn: a.atendido_en }));
     },

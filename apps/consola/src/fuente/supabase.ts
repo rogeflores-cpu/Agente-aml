@@ -60,13 +60,14 @@ export function fuenteSupabase(): Fuente {
     },
 
     async expediente(id): Promise<DetalleExpediente> {
-      const [e, datos, documentos, pendientes, verificaciones, alertas, evaluaciones, decisiones, bitacora] = await Promise.all([
+      const [e, datos, documentos, pendientes, verificaciones, alertas, bloqueos, evaluaciones, decisiones, bitacora] = await Promise.all([
         leer<any>(sb.from('expedientes').select('*, operaciones(codigo, tipo, precio, moneda, inmueble, forma_pago)').eq('id', id).single()),
         leer<any[]>(sb.from('datos_expediente').select('campo, valor, origen, documento_id, pagina, confianza, confirmado_en').eq('expediente_id', id).eq('vigente', true).order('campo')),
         leer<any[]>(sb.from('documentos').select('id, tipo, estado, canal, sha256, creado_en').eq('expediente_id', id).order('creado_en')),
         leer<any[]>(sb.from('pendientes').select('id, tipo, descripcion, estado').eq('expediente_id', id).eq('estado', 'abierto')),
         leer<any[]>(sb.from('verificaciones').select('*').eq('expediente_id', id).order('consultado_en', { ascending: false })),
         leer<any[]>(sb.from('alertas').select('*').eq('expediente_id', id).order('creado_en', { ascending: false })),
+        leer<any[]>(sb.from('bloqueos_preventivos').select('*').eq('expediente_id', id).order('creado_en', { ascending: false })),
         leer<any[]>(sb.from('evaluaciones_riesgo').select('*').eq('expediente_id', id).order('calculado_en', { ascending: false })),
         leer<any[]>(sb.from('decisiones').select('*').eq('expediente_id', id).order('decidido_en', { ascending: false })),
         leer<any[]>(sb.from('bitacora').select('id, ocurrido_en, actor_tipo, evento, entidad, hash').eq('entidad_id', id).order('id', { ascending: false }).limit(100)),
@@ -84,6 +85,11 @@ export function fuenteSupabase(): Fuente {
           resultado: v.resultado, coincidencias: v.coincidencias ?? [], justificacion: v.justificacion, dispuestoEn: v.dispuesto_en,
         })),
         alertas: alertas.map((a) => ({ id: a.id, senal: a.senal, descripcion: a.descripcion, estado: a.estado, venceEn: a.vence_en, creadoEn: a.creado_en, cierre: a.cierre })),
+        bloqueos: bloqueos.map((b) => ({
+          id: b.id, fuente: b.fuente, nombre: b.nombre, detectadaEn: b.detectada_en, creadoEn: b.creado_en,
+          comunicadoMpEn: b.comunicado_mp_en, comunicacionReferencia: b.comunicacion_referencia, comunicacionDentroPlazo: b.comunicacion_dentro_plazo,
+          levantadoEn: b.levantado_en, levantamientoMotivo: b.levantamiento_motivo, levantamientoReferencia: b.levantamiento_referencia,
+        })),
         evaluaciones: evaluaciones.map((v) => ({
           id: v.id, calculadoEn: v.calculado_en, puntajes: v.puntajes, puntajeTotal: Number(v.puntaje_total), nivelCalculado: v.nivel_calculado,
           nivelAjustado: v.nivel_ajustado, justificacionAjuste: v.justificacion_ajuste, medidas: v.medidas, reglas: v.reglas_impuestas, senales: v.senales,
@@ -113,6 +119,13 @@ export function fuenteSupabase(): Fuente {
     },
     async cerrarAlerta(id, cierre) {
       await llamar(`/alertas/${id}/cerrar`, { cierre });
+    },
+    async registrarComunicacionMp(id, c) {
+      const r = await llamar(`/bloqueos/${id}/comunicacion`, c);
+      return { dentroDePlazo: r.dentroDePlazo ?? null };
+    },
+    async levantarBloqueo(id, motivo, referencia) {
+      await llamar(`/bloqueos/${id}/levantar`, { motivo, referencia });
     },
     async urlDocumento(id) {
       const r = await llamar(`/documentos/${id}/url`, undefined, 'GET');

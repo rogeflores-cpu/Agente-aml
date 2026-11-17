@@ -3,7 +3,14 @@ import { cotejar, parsearListaOnu, type Consulta, type RegistroLista } from '@ag
 import { inngest } from '../cliente-inngest.js';
 import { config } from '../config.js';
 import { db, notificar, sinError } from '../datos.js';
+import { cargarDesignacionesVigentes } from '../designaciones.js';
 import { cargarListaVigente, planificarActualizacion } from '../lista-onu.js';
+
+type Fuente = 'onu' | 'designacion_1373';
+const NOMBRE_FUENTE: Record<Fuente, string> = {
+  onu: 'la lista de la ONU',
+  designacion_1373: 'las designaciones de la S/RES/1373',
+};
 
 
 /**
@@ -20,6 +27,7 @@ async function registrarResultado(
   consulta: Consulta,
   version: string,
   coincidencias: ReturnType<typeof cotejar>,
+  fuente: Fuente = 'onu',
 ) {
   const detectadaEn = new Date();
   const verificacion = await sinError(db().from('verificaciones').insert({
@@ -27,7 +35,7 @@ async function registrarResultado(
     expediente_id: expedienteId,
     persona_relacionada_id: personaRelacionadaId,
     nombre_consultado: consulta.nombre,
-    fuente: 'onu',
+    fuente,
     version_fuente: version,
     consultado_en: detectadaEn.toISOString(),
     resultado: coincidencias.length ? 'posible_coincidencia' : 'sin_coincidencia',
@@ -44,7 +52,7 @@ async function registrarResultado(
     .eq('expediente_id', expedienteId).eq('senal', 'ONU_POSIBLE')
     .contains('evidencia', { verificacionId }).limit(1).single());
   // Aviso solo a cumplimiento. El cliente y el área comercial no se enteran (art. 38).
-  await notificar(organizacionId, 'cumplimiento', 'Posible coincidencia en lista de la ONU: plazo de 24 horas en curso',
+  await notificar(organizacionId, 'cumplimiento', `Posible coincidencia con ${NOMBRE_FUENTE[fuente]}: plazo de 24 horas en curso`,
     `${consulta.nombre}: ${coincidencias.length} posible(s) coincidencia(s). El plazo del art. 43 corre desde la detección.`,
     { expedienteId, prioridad: coincidencias.some((c) => c.prioridad === 'alta') ? 'urgente' : 'alta' });
   await inngest.send({
@@ -53,26 +61,44 @@ async function registrarResultado(
   });
 }
 
-/** Etapa 5: cotejo al identificar al cliente, la entidad, el representante o un beneficiario final. */
+/**
+ * Etapa 5: cotejo al identificar al cliente, la entidad, el representante o un
+ * beneficiario final, contra la lista de la ONU y, si la plataforma registró
+ * alguna, contra las designaciones de la S/RES/1373 (art. 43 c).
+ */
 export const cotejoInicial = inngest.createFunction(
   { id: 'cotejo-onu-inicial' },
   { event: 'aml/persona.identificada' },
   async ({ event, step }) => {
     const d = event.data;
-    return step.run('cotejar', async () => {
-      const lista = await cargarListaVigente();
-      if (!lista.sha256) throw new Error('No hay lista ONU cargada; el cotejo no puede omitirse');
-      // Sin duplicados: el mismo nombre con la misma versión de la lista se coteja una sola vez
+    const consulta: Consulta = { nombre: d.nombre, tipo: d.tipo, fechaNacimiento: d.fechaNacimiento };
+    /** Sin duplicados: el mismo nombre con la misma versión de la fuente se coteja una sola vez. */
+    const yaCotejado = async (fuente: Fuente, version: string) => {
       const previas = (await sinError(
         db().from('verificaciones').select('nombre_consultado').eq('expediente_id', d.expedienteId)
-          .eq('fuente', 'onu').eq('version_fuente', lista.sha256),
+          .eq('fuente', fuente).eq('version_fuente', version),
       )) as { nombre_consultado: string }[];
-      if (previas.some((p) => claveNombre(p.nombre_consultado) === claveNombre(d.nombre))) return { duplicado: true };
-      const consulta: Consulta = { nombre: d.nombre, tipo: d.tipo, fechaNacimiento: d.fechaNacimiento };
+      return previas.some((p) => claveNombre(p.nombre_consultado) === claveNombre(d.nombre));
+    };
+
+    const onu = await step.run('cotejar', async () => {
+      const lista = await cargarListaVigente();
+      if (!lista.sha256) throw new Error('No hay lista ONU cargada; el cotejo no puede omitirse');
+      if (await yaCotejado('onu', lista.sha256)) return { duplicado: true };
       const r = cotejar(consulta, lista.registros);
       await registrarResultado(d.organizacionId, d.expedienteId, d.personaRelacionadaId ?? null, consulta, lista.sha256, r);
       return { coincidencias: r.length };
     });
+
+    const designaciones = await step.run('cotejar-1373', async () => {
+      const lista = await cargarDesignacionesVigentes();
+      if (!lista.version) return { sinDesignaciones: true };
+      if (await yaCotejado('designacion_1373', lista.version)) return { duplicado: true };
+      const r = cotejar(consulta, lista.registros);
+      await registrarResultado(d.organizacionId, d.expedienteId, d.personaRelacionadaId ?? null, consulta, lista.version, r, 'designacion_1373');
+      return { coincidencias: r.length };
+    });
+    return { onu, designaciones };
   },
 );
 
@@ -197,5 +223,50 @@ export const actualizarListaYRecotejar = inngest.createFunction(
       });
     }
     return { revisados: cambios.referencias.length, cartera: cartera.length, encontradas };
+  },
+);
+
+/**
+ * Control permanente de las designaciones 1373: al registrarse una nueva, la
+ * plataforma emite el evento y aquí se coteja toda la cartera activa contra
+ * esa designación. Solo se registran las posibles coincidencias (igual que el
+ * recotejo diario de la ONU).
+ */
+export const recotejarDesignacion = inngest.createFunction(
+  {
+    id: 'designacion-1373-registrada',
+    concurrency: { limit: 1 },
+    onFailure: async ({ error }) => {
+      await sinError(db().from('avisos_plataforma').insert({
+        asunto: 'Falló el recotejo de una designación 1373',
+        cuerpo: `La cartera no se cotejó contra la designación registrada: ${error.message}. Revise el flujo designacion-1373-registrada.`,
+      }));
+    },
+  },
+  { event: 'aml/designacion_1373.registrada' },
+  async ({ event, step }) => {
+    const designacion = await step.run('cargar-designacion', async () => {
+      const lista = await cargarDesignacionesVigentes();
+      const registro = lista.registros.find((r) => r.referencia === `1373:${event.data.designacionId}`);
+      return registro && lista.version ? { registro, version: lista.version } : null;
+    });
+    if (!designacion) return { revocadaOInexistente: true };
+    const cartera = await step.run('cargar-cartera', cargarCartera);
+    let encontradas = 0;
+    for (let i = 0; i < cartera.length; i += 200) {
+      encontradas += await step.run(`recotejar-${i}`, async () => {
+        let n = 0;
+        for (const c of cartera.slice(i, i + 200)) {
+          const consulta: Consulta = { nombre: c.nombre, tipo: c.tipo, fechaNacimiento: c.fechaNacimiento };
+          const r = cotejar(consulta, [designacion.registro]);
+          if (r.length) {
+            await registrarResultado(c.organizacionId, c.expedienteId, null, consulta, designacion.version, r, 'designacion_1373');
+            n++;
+          }
+        }
+        return n;
+      });
+    }
+    return { cartera: cartera.length, encontradas };
   },
 );

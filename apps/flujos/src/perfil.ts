@@ -84,13 +84,14 @@ export function construirPerfil(
     fecha: p.fecha,
   }));
 
-  const onu = verificaciones.filter((x) => x.fuente === 'onu');
+  // Art. 43: la lista de la ONU y las designaciones de la S/RES/1373 tienen el mismo efecto
+  const onu = verificaciones.filter((x) => x.fuente === 'onu' || x.fuente === 'designacion_1373');
   const coincidenciaOnu = onu.some((x) => x.resultado === 'coincidencia_confirmada')
     ? 'confirmada'
     : onu.some((x) => x.resultado === 'posible_coincidencia')
       ? 'posible'
       : 'ninguna';
-  if (!onu.length) advertencias.push('No hay cotejo con la lista de la ONU registrado para este expediente.');
+  if (!onu.some((x) => x.fuente === 'onu')) advertencias.push('No hay cotejo con la lista de la ONU registrado para este expediente.');
 
   const revision = revisar({ ...entrada, hoy });
   if (!revision.completo) advertencias.push(`Hay ${revision.pendientes.length} pendiente(s) abiertos en el expediente.`);

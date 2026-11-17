@@ -14,6 +14,7 @@ import {
 import { inngest } from './cliente-inngest.js';
 import { MENSAJE_NO_EDITABLE, cotejosPendientes, estadoAparente, idEventoCotejo, politicaEdicion } from './cotejos.js';
 import { db, sinError } from './datos.js';
+import { versionDesignaciones } from './designaciones.js';
 import { estadoParaCliente } from './plantillas.js';
 
 interface ExpedienteBase {
@@ -169,36 +170,73 @@ export async function emitirIdentificacion(i: Identificacion, version: string | 
   await inngest.send({ name: 'aml/persona.identificada', data: i, id: idEventoCotejo(i.expedienteId, i.nombre, version) });
 }
 
+export interface CotejosFaltantes {
+  personas: PersonaIdentificada[];
+  /** Versión vigente de la lista ONU (null si no hay lista cargada). */
+  versionOnu: string | null;
+  /** Versión de las designaciones 1373 (null si la plataforma nunca registró una). */
+  version1373: string | null;
+  onu: PersonaIdentificada[];
+  designaciones: PersonaIdentificada[];
+}
+
 /**
- * Dispara el cotejo ONU de toda persona identificada en el expediente (cliente
- * o entidad, representante y beneficiarios finales) que todavía no tenga un
- * cotejo con la versión vigente de la lista. Se llama después de cada cambio
- * de datos, de cada documento leído y al enviar a revisión (A1).
+ * Personas identificadas del expediente que todavía no tienen el cotejo que
+ * exige el art. 43: ONU con la versión vigente de la lista y, si hay
+ * designaciones registradas, un cotejo contra ellas.
+ */
+export async function cotejosFaltantes(expedienteId: string): Promise<CotejosFaltantes & { organizacionId: string }> {
+  const e = await cargarEntradaRevision(expedienteId);
+  const personas = personasIdentificadas(e.contexto, e.datos);
+  const [version, verificaciones, version1373] = await Promise.all([
+    sinError(db().from('lista_onu_versiones').select('sha256').order('cargada_en', { ascending: false }).limit(1).maybeSingle()),
+    sinError(db().from('verificaciones').select('nombre_consultado, version_fuente, fuente').eq('expediente_id', expedienteId)
+      .in('fuente', ['onu', 'designacion_1373'])),
+    versionDesignaciones(),
+  ]);
+  const versionOnu = ((version as { sha256?: string } | null)?.sha256 ?? null) as string | null;
+  const v = (verificaciones ?? []) as { nombre_consultado: string; version_fuente: string | null; fuente: string }[];
+  return {
+    organizacionId: e.base.organizacion_id,
+    personas,
+    versionOnu,
+    version1373,
+    onu: cotejosPendientes(personas, v.filter((x) => x.fuente === 'onu'), versionOnu),
+    // Basta un cotejo 1373 de cualquier versión: las designaciones nuevas se cotejan contra toda la cartera al registrarse.
+    designaciones: version1373 ? cotejosPendientes(personas, v.filter((x) => x.fuente === 'designacion_1373'), null) : [],
+  };
+}
+
+/**
+ * Dispara el cotejo de toda persona identificada en el expediente (cliente
+ * o entidad, representante y beneficiarios finales) a la que le falte el
+ * cotejo ONU con la versión vigente o el cotejo con las designaciones 1373.
+ * Se llama después de cada cambio de datos, de cada documento leído, al enviar
+ * a revisión (A1) y cuando el oficial intenta aprobar sin cotejos completos.
  */
 export async function emitirCotejosPendientes(
   expedienteId: string,
   emitir: (i: Identificacion, version: string | null) => Promise<void> = emitirIdentificacion,
 ): Promise<number> {
-  const e = await cargarEntradaRevision(expedienteId);
-  const personas = personasIdentificadas(e.contexto, e.datos);
-  if (!personas.length) return 0;
-  const [version, verificaciones] = await Promise.all([
-    sinError(db().from('lista_onu_versiones').select('sha256').order('cargada_en', { ascending: false }).limit(1).maybeSingle()),
-    sinError(db().from('verificaciones').select('nombre_consultado, version_fuente').eq('expediente_id', expedienteId).eq('fuente', 'onu')),
-  ]);
-  const sha = ((version as { sha256?: string } | null)?.sha256 ?? null) as string | null;
-  const faltan = cotejosPendientes(personas, verificaciones as any[], sha);
+  const f = await cotejosFaltantes(expedienteId);
+  if (!f.personas.length) return 0;
+  const faltan = [...f.onu];
+  for (const p of f.designaciones) {
+    if (!faltan.some((x) => claveNombre(x.nombre) === claveNombre(p.nombre))) faltan.push(p);
+  }
   if (!faltan.length) return 0;
-  const ids = await sincronizarPersonasRelacionadas(expedienteId, e.base.organizacion_id, personas);
+  const ids = await sincronizarPersonasRelacionadas(expedienteId, f.organizacionId, f.personas);
+  // El id del evento lleva ambas versiones: un cotejo 1373 nuevo no se descarta como duplicado del ONU
+  const version = f.version1373 ? `${f.versionOnu ?? 'sin-version'}-${f.version1373.slice(0, 16)}` : f.versionOnu;
   for (const p of faltan) {
     await emitir({
-      organizacionId: e.base.organizacion_id,
+      organizacionId: f.organizacionId,
       expedienteId,
       personaRelacionadaId: ids.get(claveNombre(p.nombre)),
       nombre: p.nombre,
       tipo: p.tipo,
       fechaNacimiento: p.fechaNacimiento,
-    }, sha);
+    }, version);
   }
   return faltan.length;
 }

@@ -26,6 +26,8 @@ type Eventos = {
   'aml/onu.coincidencia_confirmada': {
     data: { organizacionId: string; expedienteId: string; verificacionId: string; confirmadaEn: string };
   };
+  /** La plataforma registró una designación de la S/RES/1373: se coteja la cartera activa. */
+  'aml/designacion_1373.registrada': { data: { designacionId: string } };
   'aml/alerta.cerrada': { data: { organizacionId: string; alertaId: string } };
   'aml/whatsapp.mensaje': {
     data: {

@@ -7,12 +7,10 @@ import { inngest } from './cliente-inngest.js';
 import { config } from './config.js';
 import { db, notificar, sinError } from './datos.js';
 import { construirPerfil } from './perfil.js';
-import { personasIdentificadas } from '@agente-aml/agente';
-import { cotejosPendientes } from './cotejos.js';
 import {
   ajustePermitido, correoVerificado, evaluacionVigente, mismaPersona, nivelMinimoImpuesto, normalizarDocumento, plenarioValido,
 } from './reglas-consola.js';
-import { cargarEntradaRevision } from './repositorio.js';
+import { cargarEntradaRevision, cotejosFaltantes, emitirCotejosPendientes } from './repositorio.js';
 
 /**
  * API de la consola de cumplimiento. Las lecturas las hace la consola
@@ -282,21 +280,23 @@ apiConsola.post('/expedientes/:id/decidir', async (c) => {
     if (!ev) return c.json({ error: 'Evalúe el riesgo antes de aprobar.' }, 409);
     evaluacion = { id: (ev as any).id, nivel: (ev as any).nivel_ajustado ?? (ev as any).nivel_calculado };
 
-    // A1: toda persona identificada debe tener cotejo ONU con la versión vigente de la lista
-    const [entrada, version, verificaciones, ultimoDato, ultimoDoc] = await Promise.all([
-      cargarEntradaRevision(exp.id),
-      sinError(db().from('lista_onu_versiones').select('sha256').order('cargada_en', { ascending: false }).limit(1).maybeSingle()),
-      sinError(db().from('verificaciones').select('nombre_consultado, version_fuente').eq('expediente_id', exp.id).eq('fuente', 'onu')),
+    // A1 y art. 43 c: toda persona identificada debe tener cotejo ONU con la versión
+    // vigente de la lista y, si hay designaciones registradas, cotejo 1373
+    const [faltantes, ultimoDato, ultimoDoc] = await Promise.all([
+      cotejosFaltantes(exp.id),
       sinError(db().from('datos_expediente').select('creado_en').eq('expediente_id', exp.id).order('creado_en', { ascending: false }).limit(1).maybeSingle()),
       sinError(db().from('documentos').select('creado_en').eq('expediente_id', exp.id).order('creado_en', { ascending: false }).limit(1).maybeSingle()),
     ]);
-    const sha = (version as { sha256?: string } | null)?.sha256 ?? null;
-    if (!sha) return c.json({ error: 'No hay lista ONU cargada: no se puede aprobar sin cotejo (art. 43).' }, 409);
-    const personas = personasIdentificadas(entrada.contexto, entrada.datos);
-    if (!personas.length) return c.json({ error: 'El expediente no tiene personas identificadas para cotejar.' }, 409);
-    const faltan = cotejosPendientes(personas, verificaciones as any[], sha);
-    if (faltan.length) {
-      return c.json({ error: `Falta el cotejo con la lista ONU vigente de: ${faltan.map((p) => p.nombre).join(', ')}. Espere unos minutos e intente de nuevo.` }, 409);
+    if (!faltantes.versionOnu) return c.json({ error: 'No hay lista ONU cargada: no se puede aprobar sin cotejo (art. 43).' }, 409);
+    if (!faltantes.personas.length) return c.json({ error: 'El expediente no tiene personas identificadas para cotejar.' }, 409);
+    if (faltantes.onu.length || faltantes.designaciones.length) {
+      // Se disparan ahora los cotejos que falten; el oficial vuelve a intentar en unos minutos
+      await emitirCotejosPendientes(exp.id);
+      const partes = [
+        faltantes.onu.length ? `lista ONU vigente: ${faltantes.onu.map((p) => p.nombre).join(', ')}` : '',
+        faltantes.designaciones.length ? `designaciones S/RES/1373: ${faltantes.designaciones.map((p) => p.nombre).join(', ')}` : '',
+      ].filter(Boolean);
+      return c.json({ error: `Falta el cotejo (${partes.join('; ')}). Se solicitó ahora; espere unos minutos e intente de nuevo.` }, 409);
     }
     // M4: la evaluación debe ser posterior al último cambio del expediente
     const cambios = [(ultimoDato as any)?.creado_en, (ultimoDoc as any)?.creado_en].filter(Boolean).sort();
@@ -331,6 +331,50 @@ apiConsola.post('/expedientes/:id/decidir', async (c) => {
   }
   if (d.tipo === 'aprobar_diferida' && d.verificacionDiferidaHasta) {
     await inngest.send({ name: 'aml/expediente.aprobado_diferido', data: { organizacionId: exp.organizacion_id, expedienteId: exp.id, hasta: d.verificacionDiferidaHasta } });
+  }
+  return c.json({ ok: true });
+});
+
+// ------------------------------------------- bloqueo preventivo (art. 43)
+// La base registra el bloqueo al confirmarse una coincidencia. El oficial
+// registra la comunicación escrita al Ministerio Público y, cuando proceda
+// (exclusión de la lista o resolución de autoridad), levanta el bloqueo.
+// Ambas acciones van con el token del usuario: la base valida el rol.
+const esquemaComunicacion = z.object({
+  comunicadoEn: z.string().datetime({ offset: true, message: 'Fecha y hora con zona (ISO 8601)' }),
+  referencia: z.string().trim().min(3, 'Indique el número de oficio o de recepción'),
+  documentoId: z.string().uuid().optional(),
+});
+
+apiConsola.post('/bloqueos/:id/comunicacion', async (c) => {
+  const cuerpo = esquemaComunicacion.safeParse(await c.req.json().catch(() => ({})));
+  if (!cuerpo.success) return invalido(c, cuerpo.error);
+  const { data: filas, error } = await comoUsuario(c).rpc('registrar_comunicacion_mp', {
+    p_bloqueo: c.req.param('id'),
+    p_comunicado_en: cuerpo.data.comunicadoEn,
+    p_referencia: cuerpo.data.referencia,
+    p_documento: cuerpo.data.documentoId ?? null,
+  });
+  if (error) {
+    if (error.code === '42501') return c.json({ error: 'El bloqueo no existe o no tiene permiso para registrar la comunicación' }, 403);
+    return c.json({ error: error.message }, codigoHttp(error.code));
+  }
+  const r = (filas as Array<{ bloqueo_id: string; dentro_de_plazo: boolean }> | null)?.[0];
+  return c.json({ ok: true, dentroDePlazo: r?.dentro_de_plazo ?? null });
+});
+
+apiConsola.post('/bloqueos/:id/levantar', async (c) => {
+  const cuerpo = z.object({
+    motivo: z.string().trim().min(20, 'Explique el motivo con al menos 20 caracteres'),
+    referencia: z.string().trim().min(3, 'Indique la referencia de la resolución o exclusión'),
+  }).safeParse(await c.req.json().catch(() => ({})));
+  if (!cuerpo.success) return invalido(c, cuerpo.error);
+  const { error } = await comoUsuario(c).rpc('levantar_bloqueo', {
+    p_bloqueo: c.req.param('id'), p_motivo: cuerpo.data.motivo, p_referencia: cuerpo.data.referencia,
+  });
+  if (error) {
+    if (error.code === '42501') return c.json({ error: 'El bloqueo no existe o no tiene permiso para levantarlo' }, 403);
+    return c.json({ error: error.message }, codigoHttp(error.code));
   }
   return c.json({ ok: true });
 });

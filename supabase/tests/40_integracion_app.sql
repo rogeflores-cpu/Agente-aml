@@ -487,16 +487,31 @@ exception when others then
 end $$;
 
 -- 28. Efectivo y cierre de la operación (api-operaciones) · authenticated (ejecutivo)
+-- El vendedor quedó con coincidencia confirmada (paso 27): bloqueo preventivo.
+-- El pago se registra (art. 31) y avisa a cumplimiento; la operación no se
+-- cierra con escritura (mensaje neutro) pero sí se cancela.
 do $$
 declare v uuid := (select valor from ids where clave = 'exp_comprador'); op uuid := (select valor from ids where clave = 'operacion');
+  avisos_antes integer := (select count(*) from aml.notificaciones where asunto like 'Pago en efectivo de una persona con bloqueo%');
+  cerro boolean := false;
 begin
   perform set_config('role', 'authenticated', true);
   perform set_config('request.jwt.claim.sub', 'b0000000-0000-0000-0000-000000000013', true);
   insert into aml.pagos_efectivo (organizacion_id, operacion_id, expediente_id, cliente_id, fecha, monto, moneda, tipo_cambio_usd, registrado_por)
   values ('a0000000-0000-0000-0000-000000000001', op, v, (select valor from ids where clave = 'cliente'), current_date, 40000, 'GTQ', 7.70,
           'b0000000-0000-0000-0000-000000000013');
-  perform aml.cerrar_operacion(op, 'cerrada');
+  begin
+    perform aml.cerrar_operacion(op, 'cerrada');
+    cerro := true;
+  exception when others then
+    if sqlerrm ~* '(onu|lista|coincid|bloqueo)' then raise exception 'mensaje no neutro al ejecutivo: %', sqlerrm; end if;
+  end;
+  if cerro then raise exception 'se cerró con escritura una operación con bloqueo preventivo'; end if;
+  perform aml.cerrar_operacion(op, 'cancelada');
   perform set_config('role', 'postgres', true);
+  if (select count(*) from aml.notificaciones where asunto like 'Pago en efectivo de una persona con bloqueo%') <> avisos_antes + 1 then
+    raise exception 'el pago en efectivo con bloqueo no avisó a cumplimiento';
+  end if;
   if (select fin_relacion from aml.expedientes where id = v) is null then raise exception 'no se fijó fin_relacion'; end if;
   insert into resultados (paso, ok) values ('28 efectivo y cierre de la operación como ejecutivo (api-operaciones)', true);
 exception when others then

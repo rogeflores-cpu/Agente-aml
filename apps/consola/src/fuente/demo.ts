@@ -32,7 +32,7 @@ const perfilBase = (p: Partial<PerfilEvaluacion>): PerfilEvaluacion => ({
 
 function crearDatos(): { expedientes: DetalleExpediente[]; perfiles: Record<string, PerfilEvaluacion>; avisos: Aviso[] } {
   const base = {
-    organizacionId: ORG, verificacionDiferidaHasta: null, evaluaciones: [], decisiones: [], alertas: [], pendientes: [],
+    organizacionId: ORG, verificacionDiferidaHasta: null, evaluaciones: [], decisiones: [], alertas: [], bloqueos: [], pendientes: [],
   };
   const opA = { tipo: 'compraventa', precio: 1540000, moneda: 'GTQ', inmueble: { departamento: 'Sacatepéquez', municipio: 'Antigua Guatemala', finca: '18,452 folio 210 libro 98' }, formaPago: [{ medio: 'financiamiento_bancario', monto: 1232000 }, { medio: 'transferencia_local', monto: 308000 }] };
 
@@ -65,7 +65,7 @@ function crearDatos(): { expedientes: DetalleExpediente[]; perfiles: Record<stri
       { id: 'doc-a4', tipo: 'soporte_origen_fondos', estado: 'extraido', canal: 'web', sha256: hash(4), creadoEn: hace(25) },
     ],
     verificaciones: [{
-      id: 'ver-a1', nombreConsultado: 'Ana Lucía Pérez Gómez', fuente: 'onu', versionFuente: '2026-11-15', consultadoEn: hace(24),
+      id: 'ver-a1', nombreConsultado: 'Ana Lucía Pérez Gómez', fuente: 'onu', versionFuente: '2026-11-15', consultadoEn: hace(3),
       resultado: 'posible_coincidencia', justificacion: null, dispuestoEn: null,
       coincidencias: [{ referencia: 'XXi.204', lista: 'Ejemplo', nombreListado: 'ANA LUCIA PERES', nombreCoincidente: 'ANA LUCIA PERES', puntaje: 0.912, fechaNacimiento: 'difiere', prioridad: 'normal' }],
     }],
@@ -175,7 +175,7 @@ function crearDatos(): { expedientes: DetalleExpediente[]; perfiles: Record<stri
   };
 
   const avisos: Aviso[] = [
-    { id: 'av1', asunto: 'Posible coincidencia en lista de la ONU', cuerpo: 'Ana Lucía Pérez Gómez: 1 posible coincidencia. Disponer antes de continuar.', prioridad: 'alta', expedienteId: 'exp-a', creadaEn: hace(24), leida: false },
+    { id: 'av1', asunto: 'Posible coincidencia en lista de la ONU', cuerpo: 'Ana Lucía Pérez Gómez: 1 posible coincidencia. Disponer antes de continuar.', prioridad: 'alta', expedienteId: 'exp-a', creadaEn: hace(3), leida: false },
     { id: 'av2', asunto: 'Expediente listo para decisión', cuerpo: 'Inversiones Altamira, S.A. completó su información.', prioridad: 'normal', expedienteId: 'exp-c', creadaEn: hace(60), leida: false },
     { id: 'av3', asunto: 'Actualización de cliente próxima', cuerpo: 'Un cliente de riesgo alto debe actualizarse antes del 15/12/2026.', prioridad: 'normal', expedienteId: null, creadaEn: hace(120), leida: true },
   ];
@@ -285,9 +285,15 @@ export function fuenteDemo(): Fuente {
       Object.assign(v, { resultado, justificacion, dispuestoEn: new Date().toISOString() });
       if (resultado === 'coincidencia_confirmada') {
         e.alertas.unshift({
-          id: `al-onu-${Date.now()}`, senal: 'ONU_CONFIRMADA', estado: 'abierta', creadoEn: new Date().toISOString(), cierre: null,
-          descripcion: 'Coincidencia confirmada con lista del Consejo de Seguridad. Limitar disposición de fondos y comunicar al Ministerio Público.',
-          venceEn: new Date(Date.now() + 24 * 3_600_000).toISOString(),
+          id: `al-onu-${v.id}`, senal: 'ONU_CONFIRMADA', estado: 'abierta', creadoEn: new Date().toISOString(), cierre: null,
+          descripcion: 'Coincidencia confirmada con lista del Consejo de Seguridad (art. 43). Quedó un bloqueo preventivo sobre la persona. Comunique al Ministerio Público dentro de 24 horas y registre la comunicación.',
+          venceEn: new Date(new Date(v.consultadoEn).getTime() + 24 * 3_600_000).toISOString(),
+        });
+        // Igual que la base: bloqueo preventivo en la misma operación
+        e.bloqueos.unshift({
+          id: `bl-${v.id}`, fuente: v.fuente, nombre: v.nombreConsultado, detectadaEn: v.consultadoEn, creadoEn: new Date().toISOString(),
+          comunicadoMpEn: null, comunicacionReferencia: null, comunicacionDentroPlazo: null,
+          levantadoEn: null, levantamientoMotivo: null, levantamientoReferencia: null,
         });
       }
       registrar(e, 'update', 'verificaciones');
@@ -321,8 +327,36 @@ export function fuenteDemo(): Fuente {
       exigirCumplimiento();
       exigirTexto(cierre, 'Cierre');
       const e = estado.expedientes.find((x) => x.alertas.some((a) => a.id === id))!;
+      if (id.startsWith('al-onu-') && e.bloqueos.some((b) => `al-onu-${b.id.slice(3)}` === id && !b.comunicadoMpEn)) {
+        throw new Error('Registre la comunicación al Ministerio Público antes de cerrar esta alerta (art. 43)');
+      }
       Object.assign(e.alertas.find((a) => a.id === id)!, { estado: 'cerrada', cierre });
       registrar(e, 'update', 'alertas');
+    },
+
+    async registrarComunicacionMp(id, c) {
+      exigirCumplimiento();
+      const e = estado.expedientes.find((x) => x.bloqueos.some((b) => b.id === id))!;
+      const b = e.bloqueos.find((x) => x.id === id)!;
+      if (b.comunicadoMpEn) throw new Error('La comunicación al Ministerio Público ya fue registrada');
+      if (c.referencia.trim().length < 3) throw new Error('Indique la referencia de la comunicación (número de oficio o de recepción)');
+      const t = new Date(c.comunicadoEn).getTime();
+      if (Number.isNaN(t) || t > Date.now() + 5 * 60_000) throw new Error('Indique la fecha y hora en que se entregó la comunicación (no puede ser futura)');
+      if (t < new Date(b.detectadaEn).getTime()) throw new Error('La comunicación no puede ser anterior a la detección de la coincidencia');
+      const dentroDePlazo = t <= new Date(b.detectadaEn).getTime() + 24 * 3_600_000;
+      Object.assign(b, { comunicadoMpEn: new Date(t).toISOString(), comunicacionReferencia: c.referencia.trim(), comunicacionDentroPlazo: dentroDePlazo });
+      registrar(e, 'update', 'bloqueos_preventivos');
+      return { dentroDePlazo };
+    },
+    async levantarBloqueo(id, motivo, referencia) {
+      exigirCumplimiento();
+      const e = estado.expedientes.find((x) => x.bloqueos.some((b) => b.id === id))!;
+      const b = e.bloqueos.find((x) => x.id === id)!;
+      if (b.levantadoEn) throw new Error('El bloqueo ya fue levantado');
+      if (!b.comunicadoMpEn) throw new Error('Registre primero la comunicación al Ministerio Público');
+      if (motivo.trim().length < 20 || referencia.trim().length < 3) throw new Error('Indique el motivo (al menos 20 caracteres) y la referencia de la resolución');
+      Object.assign(b, { levantadoEn: new Date().toISOString(), levantamientoMotivo: motivo.trim(), levantamientoReferencia: referencia.trim() });
+      registrar(e, 'update', 'bloqueos_preventivos');
     },
 
     async urlDocumento() { return null; },
@@ -361,7 +395,7 @@ export function fuenteDemo(): Fuente {
           id, organizacionId: ORG, codigoOperacion: codigo, parte: p.parte, tipoPersona: p.tipoPersona, estado: 'invitado',
           contacto: { nombre: p.nombre, telefono: p.telefono ?? null, correo: p.correo ?? null, whatsappVinculado: false },
           operacion: { tipo: op.tipo, precio: op.precio ?? null, moneda: op.moneda, inmueble: { ...op.inmueble } as Record<string, string>, formaPago: op.formaPago.map((f) => ({ medio: f.medio, monto: f.monto })) },
-          verificacionDiferidaHasta: null, datos: [], documentos: [], pendientes: [], verificaciones: [], alertas: [],
+          verificacionDiferidaHasta: null, datos: [], documentos: [], pendientes: [], verificaciones: [], alertas: [], bloqueos: [],
           evaluaciones: [], decisiones: [], bitacora: [{ id: 1000 + correlativo * 10 + i, ocurridoEn: ahora, actorTipo: 'usuario', evento: 'insert', entidad: 'expedientes', hash: hash(1000 + correlativo + i) }],
         });
         estado.perfiles[id] = perfilBase({ parte: p.parte, tipoPersona: p.tipoPersona, tipoOperacion: op.tipo, ddcCompleta: false, origenFondosDeclarado: p.parte === 'vendedor' });

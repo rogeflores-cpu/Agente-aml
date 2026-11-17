@@ -11,21 +11,22 @@ persona autorizada (oficial de cumplimiento o quien ejerza la función).
 
 | Pieza | Contenido | Pruebas |
 |---|---|---|
-| `supabase/migrations` | Esquema `aml` (13 migraciones): organizaciones con marca y canal de WhatsApp propio, operaciones, expedientes por parte, datos con procedencia, documentos con SHA-256, verificaciones, alertas, riesgo, decisiones, efectivo, bitácora encadenada con secuencia y ancla. Seguridad por organización y rol; acciones sensibles solo por funciones que validan el rol; estado comercial separado (art. 38). | 81 (6 archivos SQL, incluida la integración de punta a punta) |
+| `supabase/migrations` | Esquema `aml` (15 migraciones): organizaciones con marca y canal de WhatsApp propio, operaciones, expedientes por parte, datos con procedencia, documentos con SHA-256, verificaciones, alertas, riesgo, decisiones, efectivo, bitácora encadenada con secuencia y ancla. Seguridad por organización y rol; acciones sensibles solo por funciones que validan el rol; estado comercial separado (art. 38); designaciones S/RES/1373 y bloqueo preventivo (art. 43). | 81 + 4 grupos del art. 43 (7 archivos SQL, incluida la integración de punta a punta) |
 | `packages/riesgo` | Motor de riesgo determinista: cuatro factores (art. 9), reglas ONU/GAFI/PEP/DDC, señales del sector, efectivo (art. 31), lista GAFI vigente. | 19 |
 | `packages/listas` | Lista consolidada ONU: lectura del XML, normalización y cotejo aproximado, cambios entre versiones. | 9 |
 | `packages/agente` | Agente conversacional del cliente, catálogo por parte y tipo de persona (incluye cargo público de representante y beneficiarios finales), revisor, clasificador y lector de documentos, prellenado, términos reservados. | 48 |
-| `apps/flujos` | Servidor: webhook de WhatsApp, API de consola, operaciones, portal y plataforma; 11 flujos durables. | 100 |
-| `apps/consola` | Consola: bandeja de cumplimiento (oficial, suplente, auditor) y vista operativa (administrador, ejecutivo: registrar operaciones, reenviar enlaces, efectivo). Modo demostración. | 15 + recorrido en navegador |
+| `apps/flujos` | Servidor: webhook de WhatsApp, API de consola, operaciones, portal y plataforma; 12 flujos durables. | 103 |
+| `apps/consola` | Consola: bandeja de cumplimiento (oficial, suplente, auditor) y vista operativa (administrador, ejecutivo: registrar operaciones, reenviar enlaces, efectivo). Bloqueo preventivo y comunicación al MP. Modo demostración. | 16 + recorrido en navegador |
 | `apps/portal` | Portal del cliente con la marca de la organización: conversación con el agente, carga de documentos, pendientes, envío a revisión, paso a WhatsApp. Modo demostración. | 7 + recorrido en navegador |
-| `apps/plataforma` | Administración: alta de organizaciones por pasos, usuarios, aprobación de metodología (art. 8), conexión de WhatsApp (manual o registro integrado de Meta), listas GAFI, avisos. Modo demostración. | 8 + recorrido en navegador |
+| `apps/plataforma` | Administración: alta de organizaciones por pasos, usuarios, aprobación de metodología (art. 8), conexión de WhatsApp (manual o registro integrado de Meta), listas GAFI, designaciones S/RES/1373, avisos. Modo demostración. | 8 + recorrido en navegador |
 
 ### Flujos durables
 
 | Flujo | Disparador | Qué hace |
 |---|---|---|
 | `expediente-creado` | Alta de operación | Genera el enlace con la marca de la organización, envía la plantilla de bienvenida y hasta 3 recordatorios cada 2 días. |
-| `cotejo-onu-inicial` | Cliente o persona relacionada identificada | Coteja contra la lista ONU vigente y avisa solo a cumplimiento. |
+| `cotejo-onu-inicial` | Cliente o persona relacionada identificada | Coteja contra la lista ONU vigente y, si hay alguna registrada, contra las designaciones S/RES/1373; avisa solo a cumplimiento. |
+| `designacion-1373-registrada` | La plataforma registra una designación | Coteja toda la cartera activa contra la designación nueva (control permanente, art. 43). |
 | `lista-onu-diaria` | Diario, 5:00 Guatemala | Descarga la lista; si cambió, guarda la versión y recoteja la cartera activa solo contra altas y cambios (control permanente, art. 43). |
 | `plazo-onu-24h` | Coincidencia confirmada | Abre alerta con vencimiento a 24 horas, escala a las 20 horas y deja constancia si vence. |
 | `verificacion-diferida` | Aprobación con verificación diferida | Aviso 15 días antes y alerta al vencer los 3 meses (art. 22). |
@@ -119,12 +120,28 @@ pnpm --filter @agente-aml/consola dev    # conectada (variables VITE_* en variab
 aislamiento entre organizaciones, art. 38 y correspondencia con el decreto. Corregidos en las migraciones
 `20261117001200_correcciones_seguridad.sql` y `20261117001300_integracion.sql` y en la aplicación, con
 pruebas que reproducen cada ataque (`supabase/tests/30_correcciones.sql`, `40_integracion_app.sql`).
-Quedan abiertos por decisión de diseño: designaciones de la resolución 1373 y bloqueo preventivo, y la
-exigencia en base del cotejo de cada beneficiario final.
+Los tres puntos que quedaron abiertos por decisión de diseño se cerraron en
+`20261118001500_art43_designaciones_y_bloqueo.sql` (pruebas en `supabase/tests/50_art43.sql`):
+
+- **Designaciones de la S/RES/1373 (art. 43 c).** La plataforma las registra a mano (pantalla
+  «Designaciones 1373») con la autoridad, la referencia del documento y la fecha; no se modifican ni se
+  borran, se revocan. Se cotejan con el mismo motor que la lista ONU y, al registrar una, se coteja toda la
+  cartera activa. Si existe al menos una designación, aprobar exige el cotejo 1373 de cada persona.
+- **Bloqueo preventivo.** Al confirmarse una coincidencia (ONU o 1373) la base registra en la misma
+  transacción un bloqueo de la persona en toda la organización: no se aprueba ningún expediente donde
+  aparezca, no se cierra con escritura ninguna operación suya (sí se puede cancelar; mensaje neutro al área
+  comercial) y cada pago en efectivo que se registre avisa de urgencia a cumplimiento. La alerta confirmada
+  no se cierra sin registrar la comunicación escrita al Ministerio Público (fecha, referencia y documento);
+  queda constancia de si se hizo dentro de las 24 horas. El oficial levanta el bloqueo solo con motivo y
+  referencia de la resolución.
+- **Cotejo de cada persona en la base.** Aprobar exige un cotejo sin coincidencia (o descartado) de cada
+  nombre identificado: cliente o razón social, representante y cada beneficiario final.
 
 ## Siguiente
 
 1. Montaje en un proyecto Supabase real, proveedor tecnológico de Meta y plantillas aprobadas; prueba con
    documentos y conversaciones reales.
 2. Botón para cerrar la operación en la consola y pantalla del oficial para corregir datos.
-3. Piloto con dos o tres inmobiliarias.
+3. Revisión del oficial de cumplimiento sobre el criterio de bloqueo: hoy se extiende por nombre
+   normalizado dentro de la organización; conviene decidir si también debe compararse el documento.
+4. Piloto con dos o tres inmobiliarias.

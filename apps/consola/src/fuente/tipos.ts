@@ -47,6 +47,12 @@ export interface Evaluacion {
   nivelCalculado: Nivel; nivelAjustado: Nivel | null; justificacionAjuste: string | null; medidas: string;
   reglas: ResultadoEvaluacion['reglas']; senales: ResultadoEvaluacion['senales'];
 }
+/** Bloqueo preventivo (art. 43): lo registra la base al confirmarse una coincidencia. */
+export interface Bloqueo {
+  id: string; fuente: string; nombre: string; detectadaEn: string; creadoEn: string;
+  comunicadoMpEn: string | null; comunicacionReferencia: string | null; comunicacionDentroPlazo: boolean | null;
+  levantadoEn: string | null; levantamientoMotivo: string | null; levantamientoReferencia: string | null;
+}
 export interface Decision { id: string; tipo: string; justificacion: string; condiciones: string | null; decididoEn: string; decididoPor: string }
 export interface EventoBitacora { id: number; ocurridoEn: string; actorTipo: string; evento: string; entidad: string; hash: string }
 
@@ -65,6 +71,7 @@ export interface DetalleExpediente {
   pendientes: Pendiente[];
   verificaciones: Verificacion[];
   alertas: Alerta[];
+  bloqueos: Bloqueo[];
   evaluaciones: Evaluacion[];
   decisiones: Decision[];
   bitacora: EventoBitacora[];
@@ -159,6 +166,9 @@ export interface Fuente {
   disponer(verificacionId: string, resultado: 'descartada' | 'coincidencia_confirmada', justificacion: string): Promise<void>;
   decidir(expedienteId: string, d: NuevaDecision): Promise<void>;
   cerrarAlerta(alertaId: string, cierre: string): Promise<void>;
+  /** Comunicación escrita al Ministerio Público (art. 43). Devuelve si se hizo dentro de las 24 horas. */
+  registrarComunicacionMp(bloqueoId: string, c: { comunicadoEn: string; referencia: string }): Promise<{ dentroDePlazo: boolean | null }>;
+  levantarBloqueo(bloqueoId: string, motivo: string, referencia: string): Promise<void>;
   urlDocumento(documentoId: string): Promise<string | null>;
 
   // Vista operativa (administrador y ejecutivo)

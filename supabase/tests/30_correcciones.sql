@@ -396,9 +396,20 @@ do $$ begin
   exception when others then if sqlerrm like 'FALLO%' then raise; end if; raise notice 'bloqueado: %', sqlerrm;
   end;
 end $$;
--- La inmobiliaria cierra la operación: corre el plazo de todos sus expedientes
+-- La operación tiene un expediente con coincidencia confirmada (bloqueo
+-- preventivo, art. 43): no se cierra con escritura, pero sí se cancela, y
+-- cancelarla también fija el fin de la relación de todos sus expedientes
 set local request.jwt.claim.sub = 'e1000000-0000-0000-0000-000000000000';
-select aml.cerrar_operacion('00000000-0000-0000-0000-00000000a001', 'cerrada');
+do $$ begin
+  begin
+    perform aml.cerrar_operacion('00000000-0000-0000-0000-00000000a001', 'cerrada');
+    raise exception 'FALLO: se cerró una operación con bloqueo preventivo';
+  exception when others then if sqlerrm like 'FALLO%' then raise; end if;
+    if sqlerrm ~* '(onu|lista|coincid|bloqueo)' then raise exception 'FALLO: el mensaje al área comercial no es neutro: %', sqlerrm; end if;
+    raise notice 'bloqueado: %', sqlerrm;
+  end;
+end $$;
+select aml.cerrar_operacion('00000000-0000-0000-0000-00000000a001', 'cancelada');
 reset role;
 do $$ begin
   if exists (select 1 from aml.expedientes where operacion_id = '00000000-0000-0000-0000-00000000a001' and fin_relacion is null) then

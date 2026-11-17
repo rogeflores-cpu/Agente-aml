@@ -12,6 +12,20 @@ import { extraerMensajes, firmaValida } from './whatsapp.js';
 
 export const app = new Hono();
 
+/** Variables sin las cuales alguna parte del servidor falla. Ver docs/despliegue.md. */
+export const VARIABLES_REQUERIDAS = [
+  'SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'SUPABASE_ANON_KEY', 'META_APP_SECRET', 'META_VERIFY_TOKEN',
+  'META_GRAPH_API_VERSION', 'PORTAL_DOMINIO', 'ONU_LISTA_URL', 'ANTHROPIC_API_KEY', 'CONSOLA_ORIGEN',
+  'PLATAFORMA_ORIGEN', 'PLATAFORMA_ADMINS',
+] as const;
+
+export function variablesFaltantes(entorno: NodeJS.ProcessEnv = process.env): string[] {
+  const faltan: string[] = VARIABLES_REQUERIDAS.filter((v) => !entorno[v]);
+  // En producción Inngest exige sus llaves; en local se usa el servidor de desarrollo (INNGEST_DEV)
+  if (!entorno.INNGEST_DEV) faltan.push(...['INNGEST_EVENT_KEY', 'INNGEST_SIGNING_KEY'].filter((v) => !entorno[v]));
+  return faltan;
+}
+
 app.get('/salud', (c) => c.json({ ok: true }));
 
 // Acciones de la consola de cumplimiento
@@ -53,6 +67,8 @@ app.post('/webhooks/whatsapp', async (c) => {
 
 if (process.argv[1] && import.meta.url.endsWith(process.argv[1].split('/').pop()!)) {
   const port = Number(process.env.PORT ?? 3000);
+  const faltan = variablesFaltantes();
+  if (faltan.length) console.error(`ATENCIÓN: faltan variables de entorno: ${faltan.join(', ')}. Ver docs/despliegue.md`);
   servirNode({ fetch: app.fetch, port });
   console.log(`Flujos en http://localhost:${port}`);
 }

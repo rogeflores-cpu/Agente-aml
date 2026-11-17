@@ -64,3 +64,15 @@ describe('art. 43 c: designaciones de la S/RES/1373', () => {
     expect(sinOnu.advertencias.some((a) => a.includes('lista de la ONU'))).toBe(true);
   });
 });
+
+describe('despliegue', () => {
+  it('lista las variables de entorno que faltan, incluidas las de Inngest fuera de desarrollo', async () => {
+    const { variablesFaltantes, VARIABLES_REQUERIDAS } = await import('../src/servidor.js');
+    const completo = Object.fromEntries([...VARIABLES_REQUERIDAS, 'INNGEST_EVENT_KEY', 'INNGEST_SIGNING_KEY'].map((v) => [v, 'x']));
+    expect(variablesFaltantes(completo)).toEqual([]);
+    expect(variablesFaltantes({ ...completo, ANTHROPIC_API_KEY: '' })).toEqual(['ANTHROPIC_API_KEY']);
+    const { INNGEST_EVENT_KEY: _a, INNGEST_SIGNING_KEY: _b, ...sinInngest } = completo;
+    expect(variablesFaltantes(sinInngest)).toEqual(['INNGEST_EVENT_KEY', 'INNGEST_SIGNING_KEY']);
+    expect(variablesFaltantes({ ...sinInngest, INNGEST_DEV: '1' })).toEqual([]);
+  });
+});

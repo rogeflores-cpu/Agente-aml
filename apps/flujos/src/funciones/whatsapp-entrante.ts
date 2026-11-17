@@ -1,21 +1,25 @@
 import { atenderTurno, clienteClaude } from '@agente-aml/agente';
 import { inngest } from '../cliente-inngest.js';
 import { config } from '../config.js';
-import { db, sinError } from '../datos.js';
-import { procesarDocumento } from '../documentos-entrantes.js';
+import { LIMITE_CODIGOS, codigoPermitido } from '../cotejos.js';
+import { db, notificar, sinError } from '../datos.js';
+import { MAX_DOCUMENTO_BYTES, procesarDocumento } from '../documentos-entrantes.js';
 import { respuestas } from '../plantillas.js';
-import { crearPuerto } from '../repositorio.js';
-import { descargarMedio, enviarTexto, type Canal } from '../whatsapp.js';
+import { crearPuertoConEventos } from '../repositorio.js';
+import { ArchivoDemasiadoGrande, descargarMedio, enviarTexto, type Canal } from '../whatsapp.js';
 
 const TIPOS_ARCHIVO = new Set(['image', 'document']);
+const PARECE_CODIGO = /^\s*\d{6}\s*$/;
 
 /**
  * Mensaje entrante de WhatsApp:
  * 1. Identifica la organización por el número que lo recibió.
- * 2. Si el número del cliente no está vinculado, solo acepta el código de 6 dígitos.
+ * 2. Si el número del cliente no está vinculado, solo acepta el código de 6
+ *    dígitos, con límite de intentos por número y por organización (A3).
  * 3. Si trae un archivo, lo guarda, lo identifica y lo lee.
  * 4. El agente responde con el contexto del expediente del lado del cliente.
- * Los mensajes de un mismo cliente se atienden en orden, uno a la vez.
+ * Los mensajes de un mismo cliente se atienden en orden, uno a la vez, y un
+ * mensaje ya procesado no se procesa de nuevo aunque Meta lo reenvíe (B9).
  */
 export const whatsappEntrante = inngest.createFunction(
   {
@@ -40,8 +44,12 @@ export const whatsappEntrante = inngest.createFunction(
     });
     if (!contexto) return { resultado: 'numero_desconocido' };
 
-    await step.run('guardar-entrante', () =>
-      sinError(db().from('mensajes').upsert({
+    const yaProcesado = await step.run('guardar-entrante', async () => {
+      const previo = await sinError(
+        db().from('mensajes').select('procesado_en').eq('wa_message_id', m.mensajeId).maybeSingle(),
+      );
+      if ((previo as { procesado_en: string | null } | null)?.procesado_en) return true;
+      await sinError(db().from('mensajes').upsert({
         organizacion_id: contexto.organizacionId,
         expediente_id: contexto.expedienteId,
         direccion: 'entrante',
@@ -51,55 +59,90 @@ export const whatsappEntrante = inngest.createFunction(
         texto: m.texto ?? null,
         media_id: m.mediaId ?? null,
         recibido_en: new Date(Number(m.timestamp) * 1000).toISOString(),
-      }, { onConflict: 'wa_message_id', ignoreDuplicates: true })));
+      }, { onConflict: 'wa_message_id', ignoreDuplicates: true }));
+      return false;
+    });
+    if (yaProcesado) return { resultado: 'duplicado' };
 
     const canal = async (): Promise<Canal | null> => {
       const token = await sinError(db().rpc('token_canal', { p_phone_number_id: m.phoneNumberId }));
       return token ? { phoneNumberId: m.phoneNumberId, token: token as string, graphApiVersion: config.graphApiVersion } : null;
     };
-    const responder = (id: string, texto: string) =>
+    const marcarProcesado = () =>
+      sinError(db().from('mensajes').update({ procesado_en: new Date().toISOString() }).eq('wa_message_id', m.mensajeId));
+    const responder = (id: string, texto: string, nombresPropios: string[] = []) =>
       step.run(id, async () => {
         const c = await canal();
         if (!c) return null;
-        const waMessageId = await enviarTexto(c, m.waId, texto);
+        const waMessageId = await enviarTexto(c, m.waId, texto, nombresPropios);
         await sinError(db().from('mensajes').insert({
           organizacion_id: contexto.organizacionId, expediente_id: contexto.expedienteId, direccion: 'saliente',
           wa_id: m.waId, wa_message_id: waMessageId ?? null, tipo: 'text', texto,
         }));
+        await marcarProcesado();
         return waMessageId;
       });
 
     // Vinculación del número con el expediente
     if (!contexto.expedienteId) {
-      const codigo = m.texto?.trim().match(/^\d{6}$/)?.[0];
+      const codigo = m.texto?.match(PARECE_CODIGO)?.[0].trim();
       if (!codigo) {
         await responder('responder-no-vinculado', respuestas.noVinculado);
         return { resultado: 'no_vinculado' };
       }
+      // A3: límite de intentos. Se cuentan los mensajes con forma de código de números no vinculados.
+      const permitido = await step.run('limite-intentos', async () => {
+        const desde = new Date(Date.now() - LIMITE_CODIGOS.ventanaMinutos * 60_000).toISOString();
+        const recientes = (await sinError(
+          db().from('mensajes').select('wa_id, texto').eq('organizacion_id', contexto.organizacionId)
+            .eq('direccion', 'entrante').is('expediente_id', null).gte('recibido_en', desde).limit(1000),
+        )) as { wa_id: string; texto: string | null }[];
+        const codigos = recientes.filter((r) => PARECE_CODIGO.test(r.texto ?? ''));
+        // El mensaje actual ya está guardado: se descuenta para comparar con el límite
+        const delNumero = codigos.filter((r) => r.wa_id === m.waId).length - 1;
+        const ok = codigoPermitido(delNumero, codigos.length - 1);
+        if (!ok && delNumero === LIMITE_CODIGOS.porNumero) {
+          await notificar(contexto.organizacionId, 'cumplimiento', 'Intentos repetidos de vinculación por WhatsApp',
+            `El número terminado en ${m.waId.slice(-4)} envió ${delNumero + 1} códigos en menos de ${LIMITE_CODIGOS.ventanaMinutos} minutos. Se dejaron de comprobar.`,
+            { prioridad: 'alta' });
+        }
+        return ok;
+      });
+      if (!permitido) {
+        await responder('responder-limite', respuestas.codigoInvalido);
+        return { resultado: 'limite_intentos' };
+      }
       const exp = await step.run('vincular', () =>
         sinError(db().rpc('vincular_whatsapp', { p_phone_number_id: m.phoneNumberId, p_wa_id: m.waId, p_codigo: codigo })));
+      // La respuesta de error es la misma exista o no el código, haya vencido o no
       await responder('responder-vinculacion', exp ? respuestas.vinculado : respuestas.codigoInvalido);
       return { resultado: exp ? 'vinculado' : 'codigo_invalido' };
     }
     const expedienteId = contexto.expedienteId;
 
     // Archivo recibido
-    let mensajeParaAgente = m.texto ?? '';
+    let nota: string | undefined;
     if (TIPOS_ARCHIVO.has(m.tipo) && m.mediaId) {
-      const nota = await step.run('procesar-documento', async () => {
+      nota = await step.run('procesar-documento', async () => {
         const c = await canal();
         if (!c) throw new Error('Canal sin token');
-        const medio = await descargarMedio(c, m.mediaId!);
-        return (await procesarDocumento(clienteClaude(), expedienteId, {
-          bytes: medio.bytes, mime: medio.mime, canal: 'whatsapp', pista: m.texto,
-        })).nota;
+        try {
+          const medio = await descargarMedio(c, m.mediaId!, MAX_DOCUMENTO_BYTES);
+          return (await procesarDocumento(clienteClaude(), expedienteId, {
+            bytes: medio.bytes, mime: medio.mime, canal: 'whatsapp', pista: m.texto,
+          })).nota;
+        } catch (e) {
+          if (e instanceof ArchivoDemasiadoGrande) {
+            return 'El cliente envió un archivo de más de 10 MB. Pídele una foto o un PDF más liviano.';
+          }
+          throw e;
+        }
       });
-      mensajeParaAgente = `[Nota del sistema, no la repitas literalmente] ${nota}${m.texto ? `\nEl cliente escribió: ${m.texto}` : ''}`;
-    } else if (!mensajeParaAgente) {
-      mensajeParaAgente = '[Nota del sistema] El cliente envió un mensaje sin texto (audio, ubicación o similar). Pídele que escriba su respuesta.';
+    } else if (!m.texto) {
+      nota = 'El cliente envió un mensaje sin texto (audio, ubicación o similar). Pídele que escriba su respuesta.';
     }
 
-    // Turno del agente
+    // Turno del agente: la nota de la plataforma viaja separada del texto del cliente (M5)
     const respuesta = await step.run('agente', async () => {
       const historial = ((await sinError(
         db().from('mensajes').select('direccion, texto, wa_message_id').eq('expediente_id', expedienteId)
@@ -110,17 +153,18 @@ export const whatsappEntrante = inngest.createFunction(
         .reverse()
         .map((x) => ({ rol: x.direccion === 'entrante' ? ('cliente' as const) : ('agente' as const), texto: x.texto }));
 
-      const puerto = crearPuerto(expedienteId, {
-        alIdentificar: async (i) => {
-          await inngest.send({ name: 'aml/persona.identificada', data: i });
-        },
-        alEnviarARevision: async (organizacionId) => {
-          await inngest.send({ name: 'aml/expediente.enviado_a_revision', data: { organizacionId, expedienteId } });
-        },
+      const r = await atenderTurno(clienteClaude(), crearPuertoConEventos(expedienteId), {
+        historial,
+        mensaje: m.texto ?? '',
+        nota,
+        canal: 'whatsapp',
       });
-      const r = await atenderTurno(clienteClaude(), puerto, { historial, mensaje: mensajeParaAgente, canal: 'whatsapp' });
-      await sinError(db().from('mensajes').update({ procesado_en: new Date().toISOString() }).eq('wa_message_id', m.mensajeId));
-      return { texto: r.respuesta, reemplazada: r.respuestaReemplazada, acciones: r.acciones.map((a) => a.herramienta) };
+      return {
+        texto: r.respuesta,
+        reemplazada: r.respuestaReemplazada,
+        nombresPropios: r.nombresPropios ?? [],
+        acciones: r.acciones.map((a) => a.herramienta),
+      };
     });
 
     if (respuesta.reemplazada) {
@@ -132,7 +176,7 @@ export const whatsappEntrante = inngest.createFunction(
         })));
     }
 
-    await responder('responder', respuesta.texto);
+    await responder('responder', respuesta.texto, respuesta.nombresPropios);
     return { resultado: 'atendido', acciones: respuesta.acciones };
   },
 );

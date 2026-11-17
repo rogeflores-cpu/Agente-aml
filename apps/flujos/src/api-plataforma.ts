@@ -26,7 +26,9 @@ apiPlataforma.use('*', async (c, next) => {
   const { data, error } = await db().auth.getUser(token);
   if (error || !data.user) return c.json({ error: 'Sesión inválida' }, 401);
   const correo = (data.user.email ?? '').toLowerCase();
-  if (!correo || !config.adminsPlataforma.includes(correo)) {
+  // M6: además de estar en la lista, el correo debe estar verificado (evita que alguien
+  // registre la dirección de un administrador que aún no tiene cuenta)
+  if (!correo || !config.adminsPlataforma.includes(correo) || !(data.user as { email_confirmed_at?: string }).email_confirmed_at) {
     return c.json({ error: 'Solo administradores de la plataforma' }, 403);
   }
   c.set('usuarioId', data.user.id);

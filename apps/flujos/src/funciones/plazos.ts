@@ -4,46 +4,124 @@ import { db, notificar, sinError } from '../datos.js';
 const HORA = 3_600_000;
 
 /**
- * Art. 43: confirmada la coincidencia, limitar la disposición de fondos bajo
- * administración y comunicar por escrito al Ministerio Público en un plazo que
- * no exceda 24 horas. El flujo abre la alerta, escala a las 20 horas y deja
- * constancia si vence sin cierre.
+ * Plazos del art. 43, contados desde la DETECCIÓN de la coincidencia (A6):
+ * vence a las 24 horas; se escala si a las 4 horas el oficial no la ha
+ * dispuesto, y otra vez cuando quedan 4 horas.
+ */
+export function plazosArt43(detectadaEn: string | Date) {
+  const inicio = new Date(detectadaEn).getTime();
+  return {
+    vence: new Date(inicio + 24 * HORA),
+    escalarSinDisponer: new Date(inicio + 4 * HORA),
+    escalarFinal: new Date(inicio + 20 * HORA),
+  };
+}
+
+/**
+ * Posible coincidencia detectada: el plazo ya corre. Si el oficial no la
+ * dispone en 4 horas se escala al titular y al suplente; si la descarta, la
+ * alerta se cierra sola; si la confirma, sigue el flujo plazo-onu-24h con el
+ * mismo vencimiento.
+ */
+export const posibleCoincidencia = inngest.createFunction(
+  { id: 'onu-posible-coincidencia' },
+  { event: 'aml/onu.posible_coincidencia' },
+  async ({ event, step }) => {
+    const { organizacionId, expedienteId, verificacionId, alertaId, detectadaEn } = event.data;
+    const p = plazosArt43(detectadaEn);
+    const dispuesta = (id: string, timeout: Date) =>
+      step.waitForEvent(id, { event: 'aml/verificacion.dispuesta', timeout, if: `async.data.verificacionId == '${verificacionId}'` });
+
+    let d = await dispuesta('esperar-disposicion', p.escalarSinDisponer);
+    if (!d) {
+      await step.run('escalar-sin-disponer', () =>
+        notificar(organizacionId, 'cumplimiento', 'Posible coincidencia sin disponer después de 4 horas',
+          `El plazo del art. 43 vence el ${p.vence.toISOString()}. Titular y suplente deben disponerla.`,
+          { expedienteId, prioridad: 'urgente' }));
+      d = await dispuesta('esperar-disposicion-2', p.escalarFinal);
+    }
+    if (!d) {
+      await step.run('escalar-final', () =>
+        notificar(organizacionId, 'cumplimiento', 'Quedan 4 horas del plazo del art. 43',
+          'La posible coincidencia sigue sin disponer.', { expedienteId, prioridad: 'urgente' }));
+      d = await dispuesta('esperar-disposicion-3', p.vence);
+    }
+    if (!d) {
+      await step.run('constancia-vencimiento', async () => {
+        await sinError(db().from('alertas')
+          .update({ evidencia: { verificacionId, detectadaEn, plazoVencidoSinDisponer: new Date().toISOString() } })
+          .eq('id', alertaId));
+        await notificar(organizacionId, 'cumplimiento', 'Venció el plazo de 24 horas sin disponer la coincidencia',
+          'Se dejó constancia en la alerta y en la bitácora.', { expedienteId, prioridad: 'urgente' });
+      });
+      return { resultado: 'vencido_sin_disponer' };
+    }
+    if (d.data.resultado === 'descartada') {
+      await step.run('cerrar-alerta', () =>
+        sinError(db().from('alertas')
+          .update({ estado: 'cerrada', cierre: 'Coincidencia descartada por el oficial de cumplimiento (ver la justificación en la verificación).', cerrada_en: new Date().toISOString() })
+          .eq('id', alertaId).neq('estado', 'cerrada')));
+      return { resultado: 'descartada' };
+    }
+    return { resultado: 'confirmada' };
+  },
+);
+
+/**
+ * Art. 43: confirmada la coincidencia, limitar con efecto preventivo la
+ * disposición de fondos o activos bajo su administración y comunicar por
+ * escrito al Ministerio Público en un plazo que no exceda de 24 horas. El
+ * plazo se cuenta desde la detección (consultado_en de la verificación), no
+ * desde la confirmación. Reutiliza la alerta de la posible coincidencia.
  */
 export const plazoOnu24h = inngest.createFunction(
   { id: 'plazo-onu-24h' },
   { event: 'aml/onu.coincidencia_confirmada' },
   async ({ event, step }) => {
     const { organizacionId, expedienteId, verificacionId, confirmadaEn } = event.data;
-    const vence = new Date(new Date(confirmadaEn).getTime() + 24 * HORA);
 
-    const alertaId = await step.run('abrir-alerta', async () => {
-      const a = await sinError(db().from('alertas').insert({
-        organizacion_id: organizacionId,
-        expediente_id: expedienteId,
-        senal: 'ONU_CONFIRMADA',
-        descripcion: 'Coincidencia confirmada con lista del Consejo de Seguridad. Limitar disposición de fondos y comunicar al Ministerio Público.',
-        evidencia: { verificacionId, confirmadaEn },
-        vence_en: vence.toISOString(),
-      }).select('id').single());
-      await notificar(organizacionId, 'cumplimiento', 'Plazo de 24 horas iniciado',
-        `Comunicación al Ministerio Público vence el ${vence.toISOString()}.`, { expedienteId, prioridad: 'urgente' });
-      return (a as any).id as string;
+    const { alertaId, vence } = await step.run('abrir-alerta', async () => {
+      const v = await sinError(db().from('verificaciones').select('consultado_en').eq('id', verificacionId).maybeSingle());
+      const detectada = (v as { consultado_en?: string } | null)?.consultado_en ?? confirmadaEn;
+      const p = plazosArt43(detectada);
+      const descripcion = 'Coincidencia confirmada con las listas del Consejo de Seguridad (art. 43). Limite con efecto preventivo la disposición de fondos o activos bajo su administración y comunique por escrito al Ministerio Público, con la documentación, dentro de las 24 horas desde la detección.';
+      const previa = (await sinError(
+        db().from('alertas').select('id').eq('expediente_id', expedienteId).eq('senal', 'ONU_POSIBLE')
+          .contains('evidencia', { verificacionId }).neq('estado', 'cerrada').limit(1).maybeSingle(),
+      )) as { id: string } | null;
+      let id = previa?.id;
+      if (id) {
+        await sinError(db().from('alertas').update({
+          senal: 'ONU_CONFIRMADA', descripcion,
+          evidencia: { verificacionId, detectadaEn: detectada, confirmadaEn },
+        }).eq('id', id));
+      } else {
+        const a = await sinError(db().from('alertas').insert({
+          organizacion_id: organizacionId, expediente_id: expedienteId, senal: 'ONU_CONFIRMADA', descripcion,
+          evidencia: { verificacionId, detectadaEn: detectada, confirmadaEn }, vence_en: p.vence.toISOString(),
+        }).select('id').single());
+        id = (a as { id: string }).id;
+      }
+      await notificar(organizacionId, 'cumplimiento', 'Coincidencia confirmada: comunicación al Ministerio Público',
+        `El plazo de 24 horas vence el ${p.vence.toISOString()} (contado desde la detección).`, { expedienteId, prioridad: 'urgente' });
+      return { alertaId: id!, vence: p.vence.toISOString() };
     });
+    const venceEn = new Date(vence);
 
     const cerrada = await step.waitForEvent('esperar-cierre', {
       event: 'aml/alerta.cerrada',
-      timeout: new Date(vence.getTime() - 4 * HORA),
+      timeout: new Date(Math.max(Date.now() + 60_000, venceEn.getTime() - 4 * HORA)),
       if: `async.data.alertaId == '${alertaId}'`,
     });
     if (cerrada) return { resultado: 'cerrada_a_tiempo' };
 
     await step.run('escalar', () =>
-      notificar(organizacionId, 'cumplimiento', 'Quedan 4 horas para comunicar al Ministerio Público',
+      notificar(organizacionId, 'cumplimiento', 'Quedan pocas horas para comunicar al Ministerio Público',
         'La alerta sigue abierta. Titular y suplente deben atenderla.', { expedienteId, prioridad: 'urgente' }));
 
     const cerradaFinal = await step.waitForEvent('esperar-cierre-final', {
       event: 'aml/alerta.cerrada',
-      timeout: vence,
+      timeout: new Date(Math.max(Date.now() + 60_000, venceEn.getTime())),
       if: `async.data.alertaId == '${alertaId}'`,
     });
     if (cerradaFinal) return { resultado: 'cerrada_tras_escalar' };

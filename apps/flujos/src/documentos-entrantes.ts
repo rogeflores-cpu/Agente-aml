@@ -7,8 +7,12 @@ import {
   type ArchivoDocumento,
   type ClienteClaude,
 } from '@agente-aml/agente';
-import { db, sinError } from './datos.js';
-import { cargarEntradaRevision, sincronizarPendientes } from './repositorio.js';
+import { MENSAJE_NO_EDITABLE, politicaEdicion } from './cotejos.js';
+import { db, notificar, sinError } from './datos.js';
+import { cargarEntradaRevision, emitirCotejosPendientes, sincronizarPendientes } from './repositorio.js';
+
+/** Límite por archivo: la lectura con Claude no admite imágenes grandes (B3). */
+export const MAX_DOCUMENTO_BYTES = 10 * 1024 * 1024;
 
 const MIME_PERMITIDOS = new Set(['image/jpeg', 'image/png', 'image/webp', 'application/pdf']);
 const EXTENSION: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'application/pdf': 'pdf' };
@@ -31,8 +35,13 @@ export async function procesarDocumento(
   if (!MIME_PERMITIDOS.has(mime)) {
     return { nota: 'El cliente envió un archivo en un formato que no se puede leer. Pídele una foto (JPG o PNG) o un PDF.' };
   }
+  if (archivo.bytes.length > MAX_DOCUMENTO_BYTES) {
+    return { nota: 'El cliente envió un archivo de más de 10 MB. Pídele una foto o un PDF más liviano.' };
+  }
   const entrada = await cargarEntradaRevision(expedienteId);
   const org = entrada.base.organizacion_id;
+  const politica = politicaEdicion(entrada.base.estado);
+  if (politica === 'rechazar') return { nota: `El expediente ya no admite documentos. Responde al cliente exactamente: "${MENSAJE_NO_EDITABLE}"` };
   const sha256 = createHash('sha256').update(archivo.bytes).digest('hex');
   const doc: ArchivoDocumento = { base64: archivo.bytes.toString('base64'), mime: mime as ArchivoDocumento['mime'] };
 
@@ -60,7 +69,10 @@ export async function procesarDocumento(
 
   const r = await extraerDocumento(claude, clase.tipo, doc);
   if (!r.legible || r.tipoDistinto) {
-    const motivo = r.motivo_no_legible ?? 'No se pudo leer con claridad. ¿Puede enviarlo de nuevo con buena luz, completo y sin reflejos?';
+    // Mensajes fijos: el texto libre del modelo lector (que se basa en el documento) no llega al agente (M5)
+    const motivo = r.tipoDistinto
+      ? 'El archivo no parece ser el documento esperado.'
+      : 'No se pudo leer con claridad. ¿Puede enviarlo de nuevo con buena luz, completo y sin reflejos?';
     await sinError(db().from('documentos').update({ estado: 'observado' }).eq('id', documentoId));
     await sincronizarPendientes(expedienteId);
     return { nota: `El cliente envió su ${clase.tipo.replace(/_/g, ' ')}, pero no se pudo leer bien: ${motivo} Pídele que lo envíe de nuevo.` };
@@ -83,11 +95,19 @@ export async function procesarDocumento(
   }
   await sinError(db().from('documentos').update({ estado: 'extraido' }).eq('id', documentoId));
   await sincronizarPendientes(expedienteId);
+  // Un nombre leído del documento se coteja de inmediato, aunque el cliente aún no lo confirme (A1)
+  await emitirCotejosPendientes(expedienteId);
+  if (politica === 'permitir_y_avisar') {
+    await notificar(org, 'cumplimiento', 'El cliente envió un documento después de enviar su expediente',
+      `Documento: ${clase.tipo.replace(/_/g, ' ')}. Revise los datos y vuelva a calcular la evaluación antes de decidir.`,
+      { expedienteId, prioridad: 'alta' });
+  }
 
-  const porConfirmar = propuestas.map((p) => `${p.campo} = ${JSON.stringify(p.valor)}`).join('; ');
+  // La nota no lleva valores leídos del documento: el agente los consulta con ver_expediente (M5)
+  const porConfirmar = propuestas.map((p) => p.campo).join(', ');
   return {
     nota: `El cliente envió su ${clase.tipo.replace(/_/g, ' ')} y se leyó correctamente.` +
-      (porConfirmar ? ` Datos leídos que debe confirmar: ${porConfirmar}. Pídele que los confirme y usa confirmar_dato.` : '') +
-      (r.dudosos.length ? ` Datos con lectura dudosa, pregúntalos: ${r.dudosos.join(', ')}.` : ''),
+      (porConfirmar ? ` Campos prellenados que el cliente debe confirmar: ${porConfirmar}. Consulta sus valores con ver_expediente, muéstralos al cliente y usa confirmar_dato solo si él lo confirma.` : '') +
+      (r.dudosos.length ? ` Campos con lectura dudosa, pregúntalos: ${r.dudosos.join(', ')}.` : ''),
   };
 }

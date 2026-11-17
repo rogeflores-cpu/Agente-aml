@@ -11,11 +11,10 @@ import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { cors } from 'hono/cors';
 import { z } from 'zod';
-import { inngest } from './cliente-inngest.js';
 import { db, sinError } from './datos.js';
 import { procesarDocumento } from './documentos-entrantes.js';
 import { nuevoCodigoVinculacion } from './enlaces.js';
-import { crearPuerto } from './repositorio.js';
+import { crearPuertoConEventos } from './repositorio.js';
 
 /**
  * API del portal web del cliente.
@@ -150,10 +149,11 @@ export function crearApiPortal(dep: DependenciasPortal, opciones: { limiteMinuto
   });
 
   /** Ejecuta un turno del agente y guarda la conversación. */
-  const turno = async (enlace: ExpedienteEnlace, mensaje: string) => {
+  const turno = async (enlace: ExpedienteEnlace, mensaje: string, nota?: string) => {
     const puerto = dep.puerto(enlace.expedienteId);
     const historial = await dep.historial(enlace.expedienteId);
-    const r = await dep.atender(puerto, { historial, mensaje, canal: 'web' });
+    // La nota de la plataforma viaja separada del texto del cliente (M5)
+    const r = await dep.atender(puerto, { historial, mensaje, nota, canal: 'web' });
     await dep.guardarMensaje(enlace, 'saliente', r.respuesta);
     if (r.respuestaReemplazada) await dep.avisarReemplazo(enlace);
     return r.respuesta;
@@ -195,7 +195,7 @@ export function crearApiPortal(dep: DependenciasPortal, opciones: { limiteMinuto
 
       await dep.guardarMensaje(enlace, 'entrante', `[Archivo enviado: ${archivo.name.slice(0, 80)}]`, 'document');
       const { nota } = await dep.procesarDocumento(enlace.expedienteId, { bytes, mime, pista });
-      const respuesta = await turno(enlace, `[Nota del sistema, no la repitas literalmente] ${nota}${pista ? `\nEl cliente escribió: ${pista}` : ''}`);
+      const respuesta = await turno(enlace, pista ?? '', nota);
       return c.json({ respuesta });
     },
   );
@@ -248,12 +248,7 @@ export function dependenciasSupabase(): DependenciasPortal {
     },
 
     puerto(expedienteId) {
-      return crearPuerto(expedienteId, {
-        alIdentificar: async (i) => { await inngest.send({ name: 'aml/persona.identificada', data: i }); },
-        alEnviarARevision: async (organizacionId) => {
-          await inngest.send({ name: 'aml/expediente.enviado_a_revision', data: { organizacionId, expedienteId } });
-        },
-      });
+      return crearPuertoConEventos(expedienteId);
     },
 
     async historial(expedienteId) {

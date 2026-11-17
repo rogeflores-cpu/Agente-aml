@@ -1,7 +1,7 @@
 import { actualizarListaYRecotejar, cotejoInicial } from './cotejo-onu.js';
 import { expedienteCreado } from './expediente-creado.js';
 import { revisarListaGafi } from './gafi.js';
-import { actualizacionPeriodica, plazoOnu24h, verificacionDiferida } from './plazos.js';
+import { actualizacionPeriodica, plazoOnu24h, posibleCoincidencia, verificacionDiferida } from './plazos.js';
 import { whatsappEntrante } from './whatsapp-entrante.js';
 
 export const funciones = [
@@ -9,6 +9,7 @@ export const funciones = [
   cotejoInicial,
   actualizarListaYRecotejar,
   plazoOnu24h,
+  posibleCoincidencia,
   verificacionDiferida,
   actualizacionPeriodica,
   whatsappEntrante,

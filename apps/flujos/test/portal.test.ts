@@ -163,7 +163,9 @@ describe('documentos', () => {
     const r = await subir(crearApiPortal(dep), JPEG);
     expect(r.status).toBe(200);
     expect(dep.procesarDocumento).toHaveBeenCalledWith('exp-1', expect.objectContaining({ mime: 'image/jpeg' }));
-    expect((dep.atender as any).mock.calls[0][1].mensaje).toMatch(/Nota del sistema/);
+    // M5: la nota de la plataforma viaja en un campo propio, no mezclada con el texto del cliente
+    expect((dep.atender as any).mock.calls[0][1].nota).toBeTruthy();
+    expect((dep.atender as any).mock.calls[0][1].mensaje).not.toMatch(/Nota del sistema/);
   });
 
   it('rechaza un archivo que dice ser imagen pero no lo es', async () => {

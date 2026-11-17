@@ -24,9 +24,10 @@ function consulta(tabla: string) {
   return b;
 }
 
-const USUARIOS: Record<string, { id: string; email: string }> = {
-  'token-admin': { id: 'u-admin', email: 'admin@plataforma.example' },
-  'token-otro': { id: 'u-otro', email: 'oficial@inmobiliaria.example' },
+const USUARIOS: Record<string, { id: string; email: string; email_confirmed_at?: string }> = {
+  'token-admin': { id: 'u-admin', email: 'admin@plataforma.example', email_confirmed_at: '2026-11-01T00:00:00Z' },
+  'token-otro': { id: 'u-otro', email: 'oficial@inmobiliaria.example', email_confirmed_at: '2026-11-01T00:00:00Z' },
+  'token-sin-verificar': { id: 'u-sv', email: 'admin@plataforma.example' },
 };
 
 vi.mock('../src/datos.js', () => ({
@@ -80,6 +81,10 @@ describe('acceso', () => {
     expect((await pedir('/organizaciones', undefined, '', 'GET')).status).toBe(401);
     expect((await pedir('/organizaciones', undefined, 'token-falso', 'GET')).status).toBe(401);
     expect((await pedir('/organizaciones', undefined, 'token-otro', 'GET')).status).toBe(403);
+  });
+
+  it('M6: rechaza al administrador listado cuyo correo no está verificado', async () => {
+    expect((await pedir('/organizaciones', undefined, 'token-sin-verificar', 'GET')).status).toBe(403);
   });
 });
 

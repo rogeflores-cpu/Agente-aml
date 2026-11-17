@@ -99,7 +99,11 @@ export async function extraerDocumento(
 
   const uso = r.content.find((b) => b.type === 'tool_use');
   if (!uso || uso.type !== 'tool_use') throw new Error('El modelo no devolvió la extracción');
-  const datos = salida.parse(uso.input);
+  const crudo = salida.parse(uso.input);
+  // Solo se aceptan los campos del esquema del documento: el modelo no puede
+  // inventar claves nuevas que terminen guardadas en el expediente.
+  const permitidos = new Set(ESQUEMAS_DOCUMENTO[tipoEsperado].map((c) => c.nombre));
+  const datos = { ...crudo, campos: Object.fromEntries(Object.entries(crudo.campos).filter(([k]) => permitidos.has(k))) };
   const umbral = opciones.umbralConfianza ?? 0.85;
   return {
     ...datos,

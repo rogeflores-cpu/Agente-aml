@@ -5,8 +5,13 @@ import { cors } from 'hono/cors';
 import { z } from 'zod';
 import { inngest } from './cliente-inngest.js';
 import { config } from './config.js';
-import { db, sinError } from './datos.js';
+import { db, notificar, sinError } from './datos.js';
 import { construirPerfil } from './perfil.js';
+import { personasIdentificadas } from '@agente-aml/agente';
+import { cotejosPendientes } from './cotejos.js';
+import {
+  ajustePermitido, correoVerificado, evaluacionVigente, mismaPersona, nivelMinimoImpuesto, normalizarDocumento, plenarioValido,
+} from './reglas-consola.js';
 import { cargarEntradaRevision } from './repositorio.js';
 
 /**
@@ -17,7 +22,7 @@ import { cargarEntradaRevision } from './repositorio.js';
  * las listas del GAFI. Las escrituras sensibles se hacen con el token del
  * usuario, de modo que las políticas y disparadores de la base las validan.
  */
-type Vars = { usuarioId: string; correo: string; token: string };
+type Vars = { usuarioId: string; correo: string; correoVerificado: boolean; token: string };
 export const apiConsola = new Hono<{ Variables: Vars }>();
 
 apiConsola.use('*', cors({ origin: (o) => (o === config.consolaOrigen ? o : null), allowHeaders: ['Authorization', 'Content-Type'] }));
@@ -30,6 +35,7 @@ apiConsola.use('*', async (c, next) => {
   if (error || !data.user) return c.json({ error: 'Sesión inválida' }, 401);
   c.set('usuarioId', data.user.id);
   c.set('correo', (data.user.email ?? '').toLowerCase());
+  c.set('correoVerificado', correoVerificado(data.user));
   c.set('token', token);
   await next();
 });
@@ -60,13 +66,19 @@ async function exigirOficial(c: Context<{ Variables: Vars }>, expedienteId: stri
   const exp = await expedienteDe(expedienteId);
   if (!exp) return { error: c.json({ error: 'Expediente no encontrado' }, 404) };
   const rol = await rolEn(exp.organizacion_id, c.get('usuarioId'));
+  if (!rol) return { error: c.json({ error: 'Expediente no encontrado' }, 404) }; // B5: no revelar que existe en otra organización
   if (rol !== 'oficial' && rol !== 'oficial_suplente') return { error: c.json({ error: 'Solo el oficial de cumplimiento' }, 403) };
   return { exp };
 }
 
 const invalido = (c: Context, e: z.ZodError) => c.json({ error: 'Datos inválidos', detalle: e.issues.map((i) => `${i.path.join('.')}: ${i.message}`) }, 400);
 
-/** Crea o vincula el registro de cliente a partir de los datos del expediente. */
+/**
+ * Crea o vincula el registro de cliente a partir de los datos del expediente.
+ * M3: si ya existe una ficha con el mismo documento, solo se vincula cuando el
+ * nombre también coincide; nunca se sobrescribe la ficha de otra persona. Si
+ * no coincide, se avisa a cumplimiento y el expediente queda sin ficha.
+ */
 async function asegurarCliente(expedienteId: string): Promise<string | null> {
   const existente = await expedienteDe(expedienteId);
   if (existente?.cliente_id) return existente.cliente_id;
@@ -77,17 +89,31 @@ async function asegurarCliente(expedienteId: string): Promise<string | null> {
   const idTipo = individual ? v('cliente.documento_tipo') : 'NIT';
   const idNum = individual ? v('cliente.documento_numero') : v('entidad.nit');
   if (!nombre || !idTipo || !idNum) return null;
-  const cliente = await sinError(
-    db().from('clientes').upsert({
+  const doc = normalizarDocumento(String(idTipo), String(idNum));
+  const ficha = (await sinError(
+    db().from('clientes').select('id, nombre').eq('organizacion_id', e.base.organizacion_id)
+      .eq('identificacion_tipo', doc.tipo).eq('identificacion_num', doc.numero).maybeSingle(),
+  )) as { id: string; nombre: string } | null;
+  let id: string;
+  if (ficha) {
+    if (!mismaPersona(ficha.nombre, nombre, !individual)) {
+      await notificar(e.base.organizacion_id, 'cumplimiento', 'Documento ya registrado con otro nombre',
+        `El expediente declara el documento ${doc.tipo} ${doc.numero} a nombre de "${nombre}", pero la ficha existente es de "${ficha.nombre}". No se vinculó: revise la identidad.`,
+        { expedienteId, prioridad: 'alta' });
+      return null;
+    }
+    id = ficha.id;
+  } else {
+    const nueva = await sinError(db().from('clientes').insert({
       organizacion_id: e.base.organizacion_id,
       tipo_persona: e.contexto.tipoPersona,
       nombre,
-      identificacion_tipo: idTipo,
-      identificacion_num: String(idNum).replace(/\s+/g, ''),
+      identificacion_tipo: doc.tipo,
+      identificacion_num: doc.numero,
       datos: Object.fromEntries(Object.entries(e.datos).filter(([k]) => !k.startsWith('doc.')).map(([k, d]) => [k, d.valor])),
-    }, { onConflict: 'organizacion_id,identificacion_tipo,identificacion_num' }).select('id').single(),
-  );
-  const id = (cliente as { id: string }).id;
+    }).select('id').single());
+    id = (nueva as { id: string }).id;
+  }
   await sinError(db().from('expedientes').update({ cliente_id: id }).eq('id', expedienteId));
   return id;
 }
@@ -151,11 +177,18 @@ apiConsola.post('/expedientes/:id/evaluar', async (c) => {
     senales: r.senales,
   }).select('id').single());
 
-  // Las señales de alerta del sector quedan como alertas para análisis (art. 28)
+  // Las señales de alerta del sector quedan como alertas para análisis (art. 28), sin duplicar las abiertas (B4)
   if (r.senales.length) {
-    await sinError(db().from('alertas').insert(r.senales.map((s) => ({
-      organizacion_id: exp.organizacion_id, expediente_id: exp.id, senal: s.codigo, descripcion: s.descripcion, evidencia: s.evidencia ?? {},
-    }))));
+    const abiertas = (await sinError(
+      db().from('alertas').select('senal').eq('expediente_id', exp.id).neq('estado', 'cerrada'),
+    )) as { senal: string }[];
+    const ya = new Set(abiertas.map((a) => a.senal));
+    const nuevas = r.senales.filter((s) => !ya.has(s.codigo));
+    if (nuevas.length) {
+      await sinError(db().from('alertas').insert(nuevas.map((s) => ({
+        organizacion_id: exp.organizacion_id, expediente_id: exp.id, senal: s.codigo, descripcion: s.descripcion, evidencia: s.evidencia ?? {},
+      }))));
+    }
   }
   return c.json({ evaluacionId: (fila as any).id, resultado: r, advertencias: construido.advertencias });
 });
@@ -164,6 +197,14 @@ apiConsola.post('/expedientes/:id/evaluar', async (c) => {
 apiConsola.post('/evaluaciones/:id/ajustar', async (c) => {
   const cuerpo = z.object({ nivel: z.enum(['bajo', 'medio', 'alto']), justificacion: z.string().min(20) }).safeParse(await c.req.json().catch(() => ({})));
   if (!cuerpo.success) return invalido(c, cuerpo.error);
+  // M1: no se puede bajar el nivel por debajo de lo que imponen las reglas (ONU, PEP, GAFI)
+  const { data: ev } = await comoUsuario(c).from('evaluaciones_riesgo')
+    .select('reglas_impuestas, nivel_ajustado').eq('id', c.req.param('id')).maybeSingle();
+  if (!ev) return c.json({ error: 'Evaluación no encontrada' }, 404);
+  if ((ev as any).nivel_ajustado) return c.json({ error: 'La evaluación ya fue ajustada. Calcule una nueva evaluación para volver a ajustar.' }, 409);
+  if (!ajustePermitido(cuerpo.data.nivel, (ev as any).reglas_impuestas)) {
+    return c.json({ error: `Las reglas aplicadas imponen un nivel mínimo ${nivelMinimoImpuesto((ev as any).reglas_impuestas)}.` }, 409);
+  }
   const { error } = await comoUsuario(c).from('evaluaciones_riesgo')
     .update({ nivel_ajustado: cuerpo.data.nivel, justificacion_ajuste: cuerpo.data.justificacion, ajustado_por: c.get('usuarioId') })
     .eq('id', c.req.param('id'));
@@ -185,6 +226,10 @@ apiConsola.post('/verificaciones/:id/disponer', async (c) => {
     .select('id, organizacion_id, expediente_id').maybeSingle();
   if (error) return c.json({ error: error.message }, 403);
   if (!data) return c.json({ error: 'La verificación no existe o ya fue dispuesta' }, 409);
+  await inngest.send({
+    name: 'aml/verificacion.dispuesta',
+    data: { organizacionId: data.organizacion_id, verificacionId: data.id, resultado: cuerpo.data.resultado },
+  });
   if (cuerpo.data.resultado === 'coincidencia_confirmada') {
     await inngest.send({
       name: 'aml/onu.coincidencia_confirmada',
@@ -213,10 +258,32 @@ apiConsola.post('/expedientes/:id/decidir', async (c) => {
 
   let evaluacion: { id: string; nivel: string } | null = null;
   if (aprueba) {
-    const ev = await sinError(db().from('evaluaciones_riesgo').select('id, nivel_calculado, nivel_ajustado')
+    const ev = await sinError(db().from('evaluaciones_riesgo').select('id, nivel_calculado, nivel_ajustado, calculado_en')
       .eq('expediente_id', exp.id).order('calculado_en', { ascending: false }).limit(1).maybeSingle());
     if (!ev) return c.json({ error: 'Evalúe el riesgo antes de aprobar.' }, 409);
     evaluacion = { id: (ev as any).id, nivel: (ev as any).nivel_ajustado ?? (ev as any).nivel_calculado };
+
+    // A1: toda persona identificada debe tener cotejo ONU con la versión vigente de la lista
+    const [entrada, version, verificaciones, ultimoDato, ultimoDoc] = await Promise.all([
+      cargarEntradaRevision(exp.id),
+      sinError(db().from('lista_onu_versiones').select('sha256').order('cargada_en', { ascending: false }).limit(1).maybeSingle()),
+      sinError(db().from('verificaciones').select('nombre_consultado, version_fuente').eq('expediente_id', exp.id).eq('fuente', 'onu')),
+      sinError(db().from('datos_expediente').select('creado_en').eq('expediente_id', exp.id).order('creado_en', { ascending: false }).limit(1).maybeSingle()),
+      sinError(db().from('documentos').select('creado_en').eq('expediente_id', exp.id).order('creado_en', { ascending: false }).limit(1).maybeSingle()),
+    ]);
+    const sha = (version as { sha256?: string } | null)?.sha256 ?? null;
+    if (!sha) return c.json({ error: 'No hay lista ONU cargada: no se puede aprobar sin cotejo (art. 43).' }, 409);
+    const personas = personasIdentificadas(entrada.contexto, entrada.datos);
+    if (!personas.length) return c.json({ error: 'El expediente no tiene personas identificadas para cotejar.' }, 409);
+    const faltan = cotejosPendientes(personas, verificaciones as any[], sha);
+    if (faltan.length) {
+      return c.json({ error: `Falta el cotejo con la lista ONU vigente de: ${faltan.map((p) => p.nombre).join(', ')}. Espere unos minutos e intente de nuevo.` }, 409);
+    }
+    // M4: la evaluación debe ser posterior al último cambio del expediente
+    const cambios = [(ultimoDato as any)?.creado_en, (ultimoDoc as any)?.creado_en].filter(Boolean).sort();
+    if (!evaluacionVigente((ev as any).calculado_en, cambios.at(-1))) {
+      return c.json({ error: 'El expediente cambió después de la última evaluación. Vuelva a calcular el riesgo antes de aprobar.' }, 409);
+    }
   }
 
   const { error: e } = await comoUsuario(c).from('decisiones').insert({
@@ -273,9 +340,11 @@ apiConsola.get('/documentos/:id/url', async (c) => {
 // --------------------------------------------- listas GAFI (administración)
 const iso = z.string().regex(/^[A-Za-z]{2}$/).transform((x) => x.toUpperCase());
 apiConsola.post('/plataforma/listas-gafi', async (c) => {
-  if (!config.adminsPlataforma.includes(c.get('correo'))) return c.json({ error: 'Solo administradores de la plataforma' }, 403);
+  if (!config.adminsPlataforma.includes(c.get('correo')) || !c.get('correoVerificado')) {
+    return c.json({ error: 'Solo administradores de la plataforma con correo verificado' }, 403);
+  }
   const cuerpo = z.object({
-    plenario: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    plenario: z.string().refine((x) => plenarioValido(x), 'La fecha del pleno no puede ser futura'),
     altoRiesgo: z.array(iso),
     monitoreo: z.array(iso),
     fuenteAltoRiesgo: z.string().url(),

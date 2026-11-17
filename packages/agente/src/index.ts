@@ -7,3 +7,4 @@ export * from './extractor.js';
 export * from './agente-cliente.js';
 export * from './prellenado.js';
 export * from './clasificador.js';
+export * from './identificacion.js';

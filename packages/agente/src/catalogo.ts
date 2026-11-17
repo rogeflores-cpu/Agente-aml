@@ -1,8 +1,13 @@
 /**
  * Catálogo de información y documentos que se piden al cliente de una
  * inmobiliaria, según la parte (comprador o vendedor) y el tipo de persona.
- * Base: art. 21 (identificación, beneficiario final, propósito, perfil) y los
- * datos mínimos que el decreto enumera en el art. 42 b. El reglamento puede
+ * Base: art. 21 numerales 1 a 4 (identificar y verificar al cliente y a quien
+ * actúa en su nombre, identificar al beneficiario final, conocer el propósito
+ * de la relación y establecer el perfil) y art. 25 a (personas expuestas
+ * políticamente). Los datos de identificación siguen como referencia la lista
+ * del art. 42 b, que es la del régimen especial de profesionales y notarios:
+ * para las inmobiliarias (régimen general, art. 3 c 1 i) no es fundamento
+ * legal sino un mínimo razonable, hasta que el reglamento fije los datos. El reglamento puede
  * ampliarlos; el catálogo es el único lugar donde se cambian.
  *
  * Los textos de "pregunta" y "explicacion" los ve el cliente: deben ser neutros.
@@ -25,6 +30,8 @@ export interface Campo {
   opciones?: string[];
   /** Se pide solo cuando otra respuesta lo hace necesario; no cuenta como faltante. */
   opcional?: boolean;
+  /** Formato esperado del valor (para campos de tipo lista). */
+  formato?: string;
   aplica: (c: Contexto) => boolean;
 }
 
@@ -43,7 +50,7 @@ const juridica = (c: Contexto) => c.tipoPersona !== 'individual';
 const comprador = (c: Contexto) => c.parte === 'comprador';
 
 export const CAMPOS: Campo[] = [
-  // Persona individual (art. 42 b i)
+  // Persona individual: identificación (art. 21 numeral 1; lista de referencia del art. 42 b i)
   { campo: 'cliente.nombre_completo', etiqueta: 'Nombre completo', pregunta: '¿Cuál es su nombre completo, tal como aparece en su documento de identificación?', tipo: 'texto', aplica: individual },
   { campo: 'cliente.fecha_nacimiento', etiqueta: 'Fecha de nacimiento', pregunta: '¿Cuál es su fecha de nacimiento?', tipo: 'fecha', aplica: individual },
   { campo: 'cliente.lugar_nacimiento', etiqueta: 'Lugar de nacimiento', pregunta: '¿En qué lugar nació?', tipo: 'texto', aplica: individual },
@@ -60,7 +67,7 @@ export const CAMPOS: Campo[] = [
   { campo: 'cliente.cargo_publico', etiqueta: 'Cargo público', pregunta: '¿Ocupa usted, o ha ocupado en el último año, un cargo público de alto nivel en Guatemala o en otro país, o una función de dirección en un organismo internacional?', tipo: 'si_no', aplica: individual },
   { campo: 'cliente.familiar_cargo_publico', etiqueta: 'Familiar o socio con cargo público', pregunta: '¿Su cónyuge o conviviente, sus padres o hijos, o algún socio cercano ocupa o ha ocupado en el último año un cargo así?', tipo: 'si_no', aplica: individual },
 
-  // Persona jurídica o estructura (art. 42 b ii y art. 21 numeral 2)
+  // Persona jurídica o estructura (art. 21 numerales 1 y 2; lista de referencia del art. 42 b ii)
   { campo: 'entidad.razon_social', etiqueta: 'Razón o denominación social', pregunta: '¿Cuál es la razón social de la entidad?', tipo: 'texto', aplica: juridica },
   { campo: 'entidad.nombre_comercial', etiqueta: 'Nombre comercial', pregunta: '¿Cuál es su nombre comercial?', tipo: 'texto', aplica: juridica },
   { campo: 'entidad.tipo', etiqueta: 'Tipo de entidad', pregunta: '¿Qué tipo de entidad es (sociedad anónima, fundación, fideicomiso u otra)?', tipo: 'texto', aplica: juridica },
@@ -72,7 +79,9 @@ export const CAMPOS: Campo[] = [
   { campo: 'entidad.actividad', etiqueta: 'Actividad principal', pregunta: '¿A qué se dedica la entidad?', tipo: 'texto', aplica: juridica },
   { campo: 'representante.nombre_completo', etiqueta: 'Representante legal', pregunta: '¿Quién es el representante legal y cuál es su nombre completo?', tipo: 'texto', aplica: juridica },
   { campo: 'representante.documento_numero', etiqueta: 'Documento del representante', pregunta: '¿Cuál es el número de DPI o pasaporte del representante legal?', tipo: 'texto', aplica: juridica },
-  { campo: 'beneficiarios_finales', etiqueta: 'Beneficiarios finales', pregunta: '¿Qué personas son dueñas, directa o indirectamente, del 15 % o más de la entidad, o la controlan por otro medio? Indique nombre, documento y porcentaje.', tipo: 'lista', aplica: juridica },
+  { campo: 'representante.cargo_publico', etiqueta: 'Cargo público del representante', pregunta: '¿El representante legal ocupa, o ha ocupado en el último año, un cargo público de alto nivel en Guatemala o en otro país, o una función de dirección en un organismo internacional? ¿Es cónyuge, conviviente, padre, madre, hijo o socio cercano de alguien que lo sea?', tipo: 'si_no', aplica: juridica },
+  { campo: 'beneficiarios_finales', etiqueta: 'Beneficiarios finales', pregunta: '¿Qué personas son dueñas, directa o indirectamente, del 15 % o más de la entidad, o la controlan por otro medio? Indique nombre, documento y porcentaje de cada una.', tipo: 'lista', formato: 'Arreglo de objetos {"nombre", "documento", "porcentaje" (número), "control_por_otro_medio" (true si controla sin llegar al 15 %)}', aplica: juridica },
+  { campo: 'beneficiarios_finales.cargo_publico', etiqueta: 'Cargo público de beneficiarios finales', pregunta: '¿Alguno de los beneficiarios finales ocupa, o ha ocupado en el último año, un cargo público de alto nivel en Guatemala o en otro país, o una función de dirección en un organismo internacional, o es cónyuge, conviviente, padre, madre, hijo o socio cercano de alguien que lo sea?', tipo: 'si_no', aplica: juridica },
 
   // Ambas partes
   { campo: 'relacion.proposito', etiqueta: 'Propósito de la operación', pregunta: '¿Para qué destinará el inmueble (vivienda, inversión, negocio u otro)?', tipo: 'texto', aplica: comprador },

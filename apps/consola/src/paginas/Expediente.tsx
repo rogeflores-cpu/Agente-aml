@@ -3,7 +3,7 @@ import {
   Boton, ESTADOS, Insignia, Mensaje, NIVELES, NOMBRE_DOCUMENTO, Tarjeta, Vacio,
   etiquetaCampo, fecha, moneda, mostrarValor,
 } from '../componentes/ui';
-import type { AjustesEvaluacion, Bloqueo, DetalleExpediente, Fuente, NuevaDecision, Rol, Verificacion } from '../fuente/tipos';
+import type { AjustesEvaluacion, Bloqueo, BloqueoRelacionado, DetalleExpediente, Fuente, NuevaDecision, Rol, Verificacion } from '../fuente/tipos';
 
 type Pestana = 'resumen' | 'datos' | 'documentos' | 'listas' | 'riesgo' | 'alertas' | 'decision' | 'bitacora';
 
@@ -20,6 +20,7 @@ export function Expediente({ fuente, id, rol, volver }: { fuente: Fuente; id: st
   const porDisponer = e.verificaciones.filter((v) => v.resultado === 'posible_coincidencia').length;
   const alertas = e.alertas.filter((a) => a.estado !== 'cerrada').length;
   const sinComunicar = e.bloqueos.filter((b) => !b.levantadoEn && !b.comunicadoMpEn).length;
+  const porLiberar = e.bloqueosRelacionados.filter((r) => !r.liberacion).length;
   const ev = e.evaluaciones[0];
   const nivel = ev ? ev.nivelAjustado ?? ev.nivelCalculado : null;
   const decidido = ['aprobado', 'aprobado_condicionado', 'rechazado', 'abstenido'].includes(e.estado);
@@ -27,6 +28,8 @@ export function Expediente({ fuente, id, rol, volver }: { fuente: Fuente; id: st
   const siguiente: { texto: string; ir: Pestana } | null =
     sinComunicar
       ? { texto: 'Bloqueo preventivo vigente: comunique por escrito al Ministerio Público dentro de 24 horas desde la detección y registre la comunicación.', ir: 'alertas' }
+      : porLiberar
+      ? { texto: 'Una persona de este expediente tiene el mismo nombre que una coincidencia confirmada en otro expediente: márquelo como homónimo o chequeo verificado para liberarlo.', ir: 'alertas' }
       : e.verificaciones.some((v) => v.resultado === 'coincidencia_confirmada') && alertas
       ? { texto: 'Coincidencia confirmada: limite la disposición de fondos y comunique al Ministerio Público dentro de 24 horas.', ir: 'alertas' }
       : porDisponer ? { texto: `Disponga ${porDisponer} posible(s) coincidencia(s) con las listas del art. 43.`, ir: 'listas' }
@@ -42,7 +45,7 @@ export function Expediente({ fuente, id, rol, volver }: { fuente: Fuente; id: st
     { clave: 'documentos', texto: 'Documentos', cuenta: e.documentos.length },
     { clave: 'listas', texto: 'Listas', cuenta: porDisponer || undefined },
     { clave: 'riesgo', texto: 'Riesgo' },
-    { clave: 'alertas', texto: 'Alertas', cuenta: alertas + sinComunicar || undefined },
+    { clave: 'alertas', texto: 'Alertas', cuenta: alertas + sinComunicar + porLiberar || undefined },
     { clave: 'decision', texto: 'Decisión' },
     { clave: 'bitacora', texto: 'Bitácora' },
   ];
@@ -381,12 +384,55 @@ function Riesgo({ e, fuente, alCambiar }: { e: DetalleExpediente; fuente: Fuente
 }
 
 function Alertas({ e, fuente, alCambiar }: { e: DetalleExpediente; fuente: Fuente; alCambiar: () => void }) {
-  if (!e.alertas.length && !e.bloqueos.length) return <Tarjeta><Vacio>No hay alertas.</Vacio></Tarjeta>;
+  if (!e.alertas.length && !e.bloqueos.length && !e.bloqueosRelacionados.length) return <Tarjeta><Vacio>No hay alertas.</Vacio></Tarjeta>;
   return (
     <div className="space-y-4">
       {e.bloqueos.map((b) => <TarjetaBloqueo key={b.id} b={b} fuente={fuente} alCambiar={alCambiar} />)}
+      {e.bloqueosRelacionados.map((r) => <TarjetaRelacionado key={r.bloqueoId} r={r} expedienteId={e.id} fuente={fuente} alCambiar={alCambiar} />)}
       {e.alertas.map((a) => <TarjetaAlerta key={a.id} a={a} fuente={fuente} alCambiar={alCambiar} />)}
     </div>
+  );
+}
+
+const LIBERACION = { homonimo: 'Homónimo', verificado: 'Chequeo verificado' } as const;
+
+function TarjetaRelacionado({ r, expedienteId, fuente, alCambiar }: { r: BloqueoRelacionado; expedienteId: string; fuente: Fuente; alCambiar: () => void }) {
+  const [tipo, setTipo] = useState<'homonimo' | 'verificado'>('homonimo');
+  const [justificacion, setJustificacion] = useState('');
+  const [acepto, setAcepto] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [enviando, setEnviando] = useState(false);
+  return (
+    <Tarjeta titulo={<span>Bloqueo por nombre · {r.nombre}</span>}
+      accion={r.liberacion
+        ? <Insignia clase="bg-bajo-claro text-bajo">Liberado · {LIBERACION[r.liberacion.tipo]}</Insignia>
+        : <Insignia clase="bg-alto text-white">Bloqueado</Insignia>}>
+      <p className="text-sm">
+        Otro expediente tiene una coincidencia confirmada con {NOMBRE_FUENTE[r.fuente] ?? r.fuente} (detectada el {fecha(r.detectadaEn)})
+        para una persona con este mismo nombre. Mientras no lo libere, este expediente no se aprueba y su operación no se cierra.
+      </p>
+      {r.liberacion ? (
+        <p className="mt-2 text-sm"><span className="text-tinta-suave">Liberado el {fecha(r.liberacion.liberadoEn)}: </span>{r.liberacion.justificacion}</p>
+      ) : (
+        <div className="mt-3 space-y-3 rounded-lg bg-papel p-4">
+          <div className="flex flex-wrap gap-4 text-sm">
+            <label className="flex items-center gap-2"><input type="radio" checked={tipo === 'homonimo'} onChange={() => setTipo('homonimo')} /> Homónimo: es otra persona</label>
+            <label className="flex items-center gap-2"><input type="radio" checked={tipo === 'verificado'} onChange={() => setTipo('verificado')} /> Chequeo verificado: comparé documentos y no corresponde</label>
+          </div>
+          <AreaTexto valor={justificacion} setValor={setJustificacion} placeholder="Datos comparados (documento, fecha de nacimiento, nacionalidad) y conclusión" />
+          <label className="flex items-start gap-2 text-sm">
+            <input type="checkbox" className="mt-1" checked={acepto} onChange={(x) => setAcepto(x.target.checked)} />
+            Como oficial de cumplimiento asumo la responsabilidad de liberar este expediente. Queda registrado con mi nombre en la bitácora.
+          </label>
+          {error && <Mensaje tipo="error">{error}</Mensaje>}
+          <Boton disabled={enviando || !acepto || justificacion.trim().length < 20} onClick={async () => {
+            setEnviando(true); setError(null);
+            try { await fuente.liberarExpediente(r.bloqueoId, expedienteId, tipo, justificacion); alCambiar(); }
+            catch (x) { setError((x as Error).message); } finally { setEnviando(false); }
+          }}>Liberar expediente</Boton>
+        </div>
+      )}
+    </Tarjeta>
   );
 }
 

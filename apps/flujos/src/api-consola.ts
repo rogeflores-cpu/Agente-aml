@@ -379,6 +379,28 @@ apiConsola.post('/bloqueos/:id/levantar', async (c) => {
   return c.json({ ok: true });
 });
 
+// Criterio del oficial (17-nov-2026): un expediente alcanzado por nombre se
+// libera solo si el oficial lo marca como homónimo o chequeo verificado, con
+// justificación; asume la responsabilidad de liberarlo.
+apiConsola.post('/bloqueos/:id/liberar', async (c) => {
+  const cuerpo = z.object({
+    expedienteId: z.string().uuid(),
+    tipo: z.enum(['homonimo', 'verificado']),
+    justificacion: z.string().trim().min(20, 'Indique los datos comparados y la conclusión (al menos 20 caracteres)'),
+    documentoId: z.string().uuid().optional(),
+  }).safeParse(await c.req.json().catch(() => ({})));
+  if (!cuerpo.success) return invalido(c, cuerpo.error);
+  const { error } = await comoUsuario(c).rpc('liberar_expediente_bloqueo', {
+    p_bloqueo: c.req.param('id'), p_expediente: cuerpo.data.expedienteId, p_tipo: cuerpo.data.tipo,
+    p_justificacion: cuerpo.data.justificacion, p_documento: cuerpo.data.documentoId ?? null,
+  });
+  if (error) {
+    if (error.code === '42501') return c.json({ error: 'El bloqueo no existe o no tiene permiso para liberar el expediente' }, 403);
+    return c.json({ error: error.message }, codigoHttp(error.code));
+  }
+  return c.json({ ok: true });
+});
+
 // ---------------------------------------------------------- cerrar alerta
 apiConsola.post('/alertas/:id/cerrar', async (c) => {
   const cuerpo = z.object({ cierre: z.string().min(20, 'Describa el cierre con al menos 20 caracteres') }).safeParse(await c.req.json().catch(() => ({})));

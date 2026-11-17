@@ -134,6 +134,17 @@ Los tres puntos que quedaron abiertos por decisión de diseño se cerraron en
   no se cierra sin registrar la comunicación escrita al Ministerio Público (fecha, referencia y documento);
   queda constancia de si se hizo dentro de las 24 horas. El oficial levanta el bloqueo solo con motivo y
   referencia de la resolución.
+- **Criterios del oficial de cumplimiento (17-nov-2026)**, migración `20261118001600_liberacion_homonimos.sql`
+  y pruebas en `supabase/tests/51_liberacion_homonimos.sql`:
+  1. El bloqueo se extiende por nombre a los demás expedientes de la organización. En cada uno, el oficial
+     lo marca como **homónimo** o **chequeo verificado**, con los datos comparados, y asume la
+     responsabilidad de liberarlo (queda su nombre, su rol y la hora en la bitácora; no se modifica ni se
+     borra). La liberación vale solo para ese expediente: el de la coincidencia confirmada no se libera, se
+     levanta con resolución.
+  2. El cotejo con las designaciones 1373 se exige solo a partir de que exista al menos una registrada;
+     mientras no haya ninguna, basta el cotejo con la lista de la ONU.
+  3. El plazo de 24 horas para comunicar al Ministerio Público se cuenta desde la detección de la
+     coincidencia. Si el manual de la organización adopta otro criterio, se ajusta.
 - **Cotejo de cada persona en la base.** Aprobar exige un cotejo sin coincidencia (o descartado) de cada
   nombre identificado: cliente o razón social, representante y cada beneficiario final.
 
@@ -142,6 +153,4 @@ Los tres puntos que quedaron abiertos por decisión de diseño se cerraron en
 1. Montaje en un proyecto Supabase real, proveedor tecnológico de Meta y plantillas aprobadas; prueba con
    documentos y conversaciones reales.
 2. Botón para cerrar la operación en la consola y pantalla del oficial para corregir datos.
-3. Revisión del oficial de cumplimiento sobre el criterio de bloqueo: hoy se extiende por nombre
-   normalizado dentro de la organización; conviene decidir si también debe compararse el documento.
-4. Piloto con dos o tres inmobiliarias.
+3. Piloto con dos o tres inmobiliarias.

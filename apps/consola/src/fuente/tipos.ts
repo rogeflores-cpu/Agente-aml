@@ -53,6 +53,11 @@ export interface Bloqueo {
   comunicadoMpEn: string | null; comunicacionReferencia: string | null; comunicacionDentroPlazo: boolean | null;
   levantadoEn: string | null; levantamientoMotivo: string | null; levantamientoReferencia: string | null;
 }
+/** Bloqueo de OTRO expediente que alcanza a este por el nombre (se libera como homónimo o chequeo verificado). */
+export interface BloqueoRelacionado {
+  bloqueoId: string; expedienteOrigen: string; nombre: string; fuente: string; detectadaEn: string;
+  liberacion: { tipo: 'homonimo' | 'verificado'; justificacion: string; liberadoEn: string } | null;
+}
 export interface Decision { id: string; tipo: string; justificacion: string; condiciones: string | null; decididoEn: string; decididoPor: string }
 export interface EventoBitacora { id: number; ocurridoEn: string; actorTipo: string; evento: string; entidad: string; hash: string }
 
@@ -72,6 +77,7 @@ export interface DetalleExpediente {
   verificaciones: Verificacion[];
   alertas: Alerta[];
   bloqueos: Bloqueo[];
+  bloqueosRelacionados: BloqueoRelacionado[];
   evaluaciones: Evaluacion[];
   decisiones: Decision[];
   bitacora: EventoBitacora[];
@@ -169,6 +175,8 @@ export interface Fuente {
   /** Comunicación escrita al Ministerio Público (art. 43). Devuelve si se hizo dentro de las 24 horas. */
   registrarComunicacionMp(bloqueoId: string, c: { comunicadoEn: string; referencia: string }): Promise<{ dentroDePlazo: boolean | null }>;
   levantarBloqueo(bloqueoId: string, motivo: string, referencia: string): Promise<void>;
+  /** El oficial libera este expediente de un bloqueo ajeno y asume la responsabilidad. */
+  liberarExpediente(bloqueoId: string, expedienteId: string, tipo: 'homonimo' | 'verificado', justificacion: string): Promise<void>;
   urlDocumento(documentoId: string): Promise<string | null>;
 
   // Vista operativa (administrador y ejecutivo)

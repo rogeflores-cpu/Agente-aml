@@ -60,7 +60,7 @@ export function fuenteSupabase(): Fuente {
     },
 
     async expediente(id): Promise<DetalleExpediente> {
-      const [e, datos, documentos, pendientes, verificaciones, alertas, bloqueos, evaluaciones, decisiones, bitacora] = await Promise.all([
+      const [e, datos, documentos, pendientes, verificaciones, alertas, bloqueos, relacionados, evaluaciones, decisiones, bitacora] = await Promise.all([
         leer<any>(sb.from('expedientes').select('*, operaciones(codigo, tipo, precio, moneda, inmueble, forma_pago)').eq('id', id).single()),
         leer<any[]>(sb.from('datos_expediente').select('campo, valor, origen, documento_id, pagina, confianza, confirmado_en').eq('expediente_id', id).eq('vigente', true).order('campo')),
         leer<any[]>(sb.from('documentos').select('id, tipo, estado, canal, sha256, creado_en').eq('expediente_id', id).order('creado_en')),
@@ -68,6 +68,7 @@ export function fuenteSupabase(): Fuente {
         leer<any[]>(sb.from('verificaciones').select('*').eq('expediente_id', id).order('consultado_en', { ascending: false })),
         leer<any[]>(sb.from('alertas').select('*').eq('expediente_id', id).order('creado_en', { ascending: false })),
         leer<any[]>(sb.from('bloqueos_preventivos').select('*').eq('expediente_id', id).order('creado_en', { ascending: false })),
+        leer<any[]>(sb.rpc('bloqueos_relacionados', { p_expediente: id }) as any),
         leer<any[]>(sb.from('evaluaciones_riesgo').select('*').eq('expediente_id', id).order('calculado_en', { ascending: false })),
         leer<any[]>(sb.from('decisiones').select('*').eq('expediente_id', id).order('decidido_en', { ascending: false })),
         leer<any[]>(sb.from('bitacora').select('id, ocurrido_en, actor_tipo, evento, entidad, hash').eq('entidad_id', id).order('id', { ascending: false }).limit(100)),
@@ -89,6 +90,10 @@ export function fuenteSupabase(): Fuente {
           id: b.id, fuente: b.fuente, nombre: b.nombre, detectadaEn: b.detectada_en, creadoEn: b.creado_en,
           comunicadoMpEn: b.comunicado_mp_en, comunicacionReferencia: b.comunicacion_referencia, comunicacionDentroPlazo: b.comunicacion_dentro_plazo,
           levantadoEn: b.levantado_en, levantamientoMotivo: b.levantamiento_motivo, levantamientoReferencia: b.levantamiento_referencia,
+        })),
+        bloqueosRelacionados: (relacionados ?? []).map((r) => ({
+          bloqueoId: r.bloqueo_id, expedienteOrigen: r.expediente_origen, nombre: r.nombre, fuente: r.fuente, detectadaEn: r.detectada_en,
+          liberacion: r.liberacion_tipo ? { tipo: r.liberacion_tipo, justificacion: r.liberacion_justificacion, liberadoEn: r.liberado_en } : null,
         })),
         evaluaciones: evaluaciones.map((v) => ({
           id: v.id, calculadoEn: v.calculado_en, puntajes: v.puntajes, puntajeTotal: Number(v.puntaje_total), nivelCalculado: v.nivel_calculado,
@@ -126,6 +131,9 @@ export function fuenteSupabase(): Fuente {
     },
     async levantarBloqueo(id, motivo, referencia) {
       await llamar(`/bloqueos/${id}/levantar`, { motivo, referencia });
+    },
+    async liberarExpediente(bloqueoId, expedienteId, tipo, justificacion) {
+      await llamar(`/bloqueos/${bloqueoId}/liberar`, { expedienteId, tipo, justificacion });
     },
     async urlDocumento(id) {
       const r = await llamar(`/documentos/${id}/url`, undefined, 'GET');

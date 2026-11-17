@@ -32,7 +32,7 @@ const perfilBase = (p: Partial<PerfilEvaluacion>): PerfilEvaluacion => ({
 
 function crearDatos(): { expedientes: DetalleExpediente[]; perfiles: Record<string, PerfilEvaluacion>; avisos: Aviso[] } {
   const base = {
-    organizacionId: ORG, verificacionDiferidaHasta: null, evaluaciones: [], decisiones: [], alertas: [], bloqueos: [], pendientes: [],
+    organizacionId: ORG, verificacionDiferidaHasta: null, evaluaciones: [], decisiones: [], alertas: [], bloqueos: [], bloqueosRelacionados: [], pendientes: [],
   };
   const opA = { tipo: 'compraventa', precio: 1540000, moneda: 'GTQ', inmueble: { departamento: 'Sacatepéquez', municipio: 'Antigua Guatemala', finca: '18,452 folio 210 libro 98' }, formaPago: [{ medio: 'financiamiento_bancario', monto: 1232000 }, { medio: 'transferencia_local', monto: 308000 }] };
 
@@ -359,6 +359,16 @@ export function fuenteDemo(): Fuente {
       registrar(e, 'update', 'bloqueos_preventivos');
     },
 
+    async liberarExpediente(bloqueoId, expedienteId, tipo, justificacion) {
+      exigirCumplimiento();
+      const e = buscar(expedienteId);
+      const r = e.bloqueosRelacionados.find((x) => x.bloqueoId === bloqueoId);
+      if (!r) throw new Error('El bloqueo no alcanza a este expediente');
+      if (r.liberacion) throw new Error('El expediente ya fue liberado de este bloqueo');
+      if (justificacion.trim().length < 20) throw new Error('Justifique la liberación con al menos 20 caracteres (datos comparados y conclusión)');
+      r.liberacion = { tipo, justificacion: justificacion.trim(), liberadoEn: new Date().toISOString() };
+      registrar(e, 'insert', 'liberaciones_bloqueo');
+    },
     async urlDocumento() { return null; },
 
     // ------------------------------------------------ vista operativa
@@ -395,7 +405,7 @@ export function fuenteDemo(): Fuente {
           id, organizacionId: ORG, codigoOperacion: codigo, parte: p.parte, tipoPersona: p.tipoPersona, estado: 'invitado',
           contacto: { nombre: p.nombre, telefono: p.telefono ?? null, correo: p.correo ?? null, whatsappVinculado: false },
           operacion: { tipo: op.tipo, precio: op.precio ?? null, moneda: op.moneda, inmueble: { ...op.inmueble } as Record<string, string>, formaPago: op.formaPago.map((f) => ({ medio: f.medio, monto: f.monto })) },
-          verificacionDiferidaHasta: null, datos: [], documentos: [], pendientes: [], verificaciones: [], alertas: [], bloqueos: [],
+          verificacionDiferidaHasta: null, datos: [], documentos: [], pendientes: [], verificaciones: [], alertas: [], bloqueos: [], bloqueosRelacionados: [],
           evaluaciones: [], decisiones: [], bitacora: [{ id: 1000 + correlativo * 10 + i, ocurridoEn: ahora, actorTipo: 'usuario', evento: 'insert', entidad: 'expedientes', hash: hash(1000 + correlativo + i) }],
         });
         estado.perfiles[id] = perfilBase({ parte: p.parte, tipoPersona: p.tipoPersona, tipoOperacion: op.tipo, ddcCompleta: false, origenFondosDeclarado: p.parte === 'vendedor' });

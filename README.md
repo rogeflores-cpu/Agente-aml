@@ -11,12 +11,14 @@ persona autorizada (oficial de cumplimiento o quien ejerza la función).
 
 | Pieza | Contenido | Pruebas |
 |---|---|---|
-| `supabase/migrations` | Esquema `aml`: organizaciones con marca y canal de WhatsApp propio, operaciones, expedientes por parte (comprador y vendedor), personas relacionadas, documentos con SHA-256, datos con procedencia, pendientes, verificaciones, alertas, evaluaciones de riesgo, decisiones, registro de efectivo, bitácora encadenada, mensajes y notificaciones. Seguridad por organización y por rol. | 17 pruebas SQL |
-| `packages/riesgo` | Motor de riesgo determinista con los cuatro factores del art. 9, reglas que se imponen al puntaje (ONU, GAFI, PEP, DDC incompleta, transacción inusual), señales de alerta del sector, registro de efectivo del art. 31 y aplicación de la lista GAFI vigente. | 19 pruebas |
-| `packages/listas` | Lectura del XML consolidado de la ONU, normalización de nombres y cotejo aproximado sin importar orden, tildes ni formas societarias. Detección de cambios entre versiones. | 9 pruebas |
-| `packages/agente` | Agente conversacional del cliente (Claude Haiku) con 4 herramientas acotadas; catálogo de información y documentos por parte y tipo de persona; revisor determinista de faltantes, ilegibles, vencidos y contradicciones; clasificador y lector de documentos (Claude Sonnet); prellenado desde documentos. | 26 pruebas |
-| `apps/flujos` | Servidor con el receptor único de WhatsApp (firma de Meta, enrutamiento por número), 8 flujos durables en Inngest, repositorio del lado del cliente, procesamiento de documentos y la API de la consola (evaluar, disponer, decidir, cerrar alertas, enlaces temporales a documentos, carga de listas GAFI). | 25 pruebas |
-| `apps/consola` | Consola de cumplimiento en React: bandeja con prioridades, expediente con datos y su procedencia, documentos, listas, riesgo, alertas, decisión y bitácora; avisos. Modo demostración con datos ficticios y el motor de riesgo real. | 3 pruebas + recorrido en navegador |
+| `supabase/migrations` | Esquema `aml` (13 migraciones): organizaciones con marca y canal de WhatsApp propio, operaciones, expedientes por parte, datos con procedencia, documentos con SHA-256, verificaciones, alertas, riesgo, decisiones, efectivo, bitácora encadenada con secuencia y ancla. Seguridad por organización y rol; acciones sensibles solo por funciones que validan el rol; estado comercial separado (art. 38). | 81 (6 archivos SQL, incluida la integración de punta a punta) |
+| `packages/riesgo` | Motor de riesgo determinista: cuatro factores (art. 9), reglas ONU/GAFI/PEP/DDC, señales del sector, efectivo (art. 31), lista GAFI vigente. | 19 |
+| `packages/listas` | Lista consolidada ONU: lectura del XML, normalización y cotejo aproximado, cambios entre versiones. | 9 |
+| `packages/agente` | Agente conversacional del cliente, catálogo por parte y tipo de persona (incluye cargo público de representante y beneficiarios finales), revisor, clasificador y lector de documentos, prellenado, términos reservados. | 48 |
+| `apps/flujos` | Servidor: webhook de WhatsApp, API de consola, operaciones, portal y plataforma; 11 flujos durables. | 100 |
+| `apps/consola` | Consola: bandeja de cumplimiento (oficial, suplente, auditor) y vista operativa (administrador, ejecutivo: registrar operaciones, reenviar enlaces, efectivo). Modo demostración. | 15 + recorrido en navegador |
+| `apps/portal` | Portal del cliente con la marca de la organización: conversación con el agente, carga de documentos, pendientes, envío a revisión, paso a WhatsApp. Modo demostración. | 7 + recorrido en navegador |
+| `apps/plataforma` | Administración: alta de organizaciones por pasos, usuarios, aprobación de metodología (art. 8), conexión de WhatsApp (manual o registro integrado de Meta), listas GAFI, avisos. Modo demostración. | 8 + recorrido en navegador |
 
 ### Flujos durables
 
@@ -97,7 +99,9 @@ Un solo receptor (`POST /webhooks/whatsapp`) valida la firma y enruta por `phone
 ## Consola de cumplimiento
 
 ```bash
-pnpm --filter @agente-aml/consola demo   # datos ficticios, sin Supabase: http://localhost:5173
+pnpm --filter @agente-aml/consola demo     # http://localhost:5173 (elegir rol oficial o ejecutivo)
+pnpm --filter @agente-aml/portal demo      # http://localhost:5174
+pnpm --filter @agente-aml/plataforma demo  # http://localhost:5175
 pnpm --filter @agente-aml/consola dev    # conectada (variables VITE_* en variables-entorno.ejemplo)
 ```
 
@@ -109,11 +113,18 @@ pnpm --filter @agente-aml/consola dev    # conectada (variables VITE_* en variab
 - La evaluación de riesgo combina el expediente con el criterio del oficial (presencialidad,
   coherencia perfil-monto, transacción inusual, tipo de cambio) y queda guardada con ambos.
 
+## Revisión independiente
+
+`docs/revision-independiente-2026-11-16.md`: 2 hallazgos críticos, 6 altos y 10 medios sobre seguridad,
+aislamiento entre organizaciones, art. 38 y correspondencia con el decreto. Corregidos en las migraciones
+`20261117001200_correcciones_seguridad.sql` y `20261117001300_integracion.sql` y en la aplicación, con
+pruebas que reproducen cada ataque (`supabase/tests/30_correcciones.sql`, `40_integracion_app.sql`).
+Quedan abiertos por decisión de diseño: designaciones de la resolución 1373 y bloqueo preventivo, y la
+exigencia en base del cotejo de cada beneficiario final.
+
 ## Siguiente
 
-1. Portal web del cliente con la marca de cada organización (carga de documentos y el mismo agente
-   en canal `web`) y pantalla del ejecutivo para registrar operaciones.
-2. Alta de organizaciones: metodología de riesgo base para aprobación, usuarios y conexión del número
-   de WhatsApp (registro integrado de Meta).
-3. Antes de producción: validar el lector de la lista ONU con el archivo oficial vigente, probar el
-   agente con documentos reales y cargar la versión vigente de las listas del GAFI.
+1. Montaje en un proyecto Supabase real, proveedor tecnológico de Meta y plantillas aprobadas; prueba con
+   documentos y conversaciones reales.
+2. Botón para cerrar la operación en la consola y pantalla del oficial para corregir datos.
+3. Piloto con dos o tres inmobiliarias.

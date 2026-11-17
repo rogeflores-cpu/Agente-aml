@@ -1,5 +1,6 @@
 import { similitudNombres, tokensEntidad, tokensPersona } from '@agente-aml/listas';
 import { camposPara, documentosPara, type Contexto } from './catalogo.js';
+import { interpretarBeneficiarios } from './identificacion.js';
 
 export interface Dato {
   valor: unknown;
@@ -87,10 +88,36 @@ export function revisar(e: EntradaRevision): ResultadoRevision {
   const campos = camposPara(e.contexto).filter((c) => !c.opcional);
   let camposListos = 0;
   for (const c of campos) {
-    if (vacio(valor(c.campo))) {
+    const d = e.datos[c.campo];
+    if (vacio(d?.valor)) {
       pendientes.push({ tipo: 'faltante', referencia: c.campo, descripcion: c.etiqueta });
+    } else if (d.origen === 'documento' && !d.confirmado) {
+      // Leído de un documento y aún no confirmado por el cliente: no cuenta como completo
+      // (el nombre del cliente, en especial, debe estar confirmado antes de revisar).
+      pendientes.push({ tipo: 'aclaracion', referencia: c.campo, descripcion: `Confirme el dato leído de su documento: ${c.etiqueta}.` });
     } else {
       camposListos++;
+    }
+  }
+
+  // Beneficiarios finales (art. 2 b): nombre, documento y 15 % o más, o control por otro medio
+  if (e.contexto.tipoPersona !== 'individual' && !vacio(valor('beneficiarios_finales'))) {
+    const lista = interpretarBeneficiarios(valor('beneficiarios_finales'));
+    const incompletos = lista.filter((b) => !b.documento || (b.porcentaje === undefined && !b.controlPorOtroMedio));
+    const bajoUmbral = lista.filter((b) => b.porcentaje !== undefined && b.porcentaje < 15 && !b.controlPorOtroMedio);
+    if (!lista.length || incompletos.length) {
+      pendientes.push({
+        tipo: 'aclaracion',
+        referencia: 'beneficiarios_finales',
+        descripcion: 'Para cada beneficiario final indique nombre completo, número de documento y porcentaje de participación (o si ejerce el control por otro medio).',
+      });
+    }
+    if (bajoUmbral.length) {
+      pendientes.push({
+        tipo: 'aclaracion',
+        referencia: 'beneficiarios_finales',
+        descripcion: `Indicó personas con menos del 15 % (${bajoUmbral.map((b) => b.nombre).join(', ')}). Confirme si ejercen el control de la entidad por otro medio o indique quiénes tienen el 15 % o más.`,
+      });
     }
   }
 

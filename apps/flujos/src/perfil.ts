@@ -107,8 +107,10 @@ export function construirPerfil(
   const perfil: PerfilEvaluacion = {
     parte,
     tipoPersona,
-    esPep: individual && si(v('cliente.cargo_publico')),
-    vinculoPep: individual && si(v('cliente.familiar_cargo_publico')),
+    // Art. 25 a: también cuando un beneficiario final es PEP o está vinculado a uno (M7).
+    // Las preguntas de persona jurídica combinan cargo y vínculo: se toma lo más estricto.
+    esPep: individual ? si(v('cliente.cargo_publico')) : si(v('beneficiarios_finales.cargo_publico')),
+    vinculoPep: individual ? si(v('cliente.familiar_cargo_publico')) : si(v('representante.cargo_publico')),
     contratistaOProveedorEstado: ajustes.contratistaOProveedorEstado ?? false,
     sinFinesDeLucro: /fundaci|asociaci|ong|sin fines/.test(tipoEntidad),
     fideicomiso: tipoPersona === 'estructura' || /fideicomiso/.test(tipoEntidad),

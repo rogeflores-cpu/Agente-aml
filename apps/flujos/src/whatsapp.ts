@@ -57,10 +57,15 @@ async function enviar(canal: Canal, cuerpo: Record<string, unknown>) {
   return json?.messages?.[0]?.id as string | undefined;
 }
 
-/** Envía una plantilla aprobada. Los parámetros se revisan con la regla del art. 38. */
+/**
+ * Envía una plantilla aprobada. El texto fijo de las plantillas se prueba con
+ * la regla del art. 38 (pruebas de plantillas.ts). Los parámetros son solo
+ * nombres propios (del cliente y de la organización) y el enlace: no se
+ * revisan como texto, porque un cliente puede llamarse "Pep" o una empresa
+ * "Inversiones Ive" y eso no revela nada (M9).
+ */
 export function enviarPlantilla(canal: Canal, destino: string, clave: ClavePlantilla, parametros: string[]) {
   const p = plantillasWhatsApp[clave];
-  parametros.forEach(verificarNeutralidad);
   return enviar(canal, {
     to: destino,
     type: 'template',
@@ -72,19 +77,30 @@ export function enviarPlantilla(canal: Canal, destino: string, clave: ClavePlant
   });
 }
 
-/** Texto libre: solo dentro de las 24 horas desde el último mensaje del cliente. */
-export function enviarTexto(canal: Canal, destino: string, texto: string) {
-  return enviar(canal, { to: destino, type: 'text', text: { body: verificarNeutralidad(texto) } });
+/**
+ * Texto libre: solo dentro de las 24 horas desde el último mensaje del cliente.
+ * `nombresPropios`: nombres del cliente y de la organización, que no cuentan
+ * como términos reservados.
+ */
+export function enviarTexto(canal: Canal, destino: string, texto: string, nombresPropios: string[] = []) {
+  return enviar(canal, { to: destino, type: 'text', text: { body: verificarNeutralidad(texto, nombresPropios) } });
 }
 
-/** Descarga un archivo recibido por WhatsApp (foto o documento). */
-export async function descargarMedio(canal: Canal, mediaId: string): Promise<{ bytes: Buffer; mime: string }> {
+export class ArchivoDemasiadoGrande extends Error {}
+
+/** Descarga un archivo recibido por WhatsApp (foto o documento), con límite de tamaño (B3). */
+export async function descargarMedio(canal: Canal, mediaId: string, maxBytes = 10 * 1024 * 1024): Promise<{ bytes: Buffer; mime: string }> {
   const info = await fetch(`https://graph.facebook.com/${canal.graphApiVersion}/${mediaId}`, {
     headers: { Authorization: `Bearer ${canal.token}` },
   });
-  const meta = (await info.json().catch(() => ({}))) as { url?: string; mime_type?: string; error?: unknown };
+  const meta = (await info.json().catch(() => ({}))) as { url?: string; mime_type?: string; file_size?: number; error?: unknown };
   if (!info.ok || !meta.url) throw new Error(`No se obtuvo el archivo ${mediaId}: ${JSON.stringify(meta.error ?? info.status)}`);
+  if (typeof meta.file_size === 'number' && meta.file_size > maxBytes) throw new ArchivoDemasiadoGrande(String(meta.file_size));
   const archivo = await fetch(meta.url, { headers: { Authorization: `Bearer ${canal.token}` } });
   if (!archivo.ok) throw new Error(`No se descargó el archivo ${mediaId}: ${archivo.status}`);
-  return { bytes: Buffer.from(await archivo.arrayBuffer()), mime: meta.mime_type ?? 'application/octet-stream' };
+  const largo = Number(archivo.headers.get('content-length') ?? 0);
+  if (largo > maxBytes) throw new ArchivoDemasiadoGrande(String(largo));
+  const bytes = Buffer.from(await archivo.arrayBuffer());
+  if (bytes.length > maxBytes) throw new ArchivoDemasiadoGrande(String(bytes.length));
+  return { bytes, mime: meta.mime_type ?? 'application/octet-stream' };
 }

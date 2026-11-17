@@ -32,3 +32,10 @@ VITE_API_URL=https://flujos.<dominio>      # servidor apps/flujos
 SUPABASE_ANON_KEY=
 CONSOLA_ORIGEN=https://consola.<dominio>
 PLATAFORMA_ADMINS=correo@ejemplo.com
+
+# Portal del cliente (apps/portal, variables de Vite). PORTAL_DOMINIO también define el CORS del portal.
+# VITE_API_URL es el mismo servidor apps/flujos que usa la consola.
+
+# Plataforma (apps/plataforma y /api/plataforma)
+PLATAFORMA_ORIGEN=https://plataforma.<dominio>   # CORS de la app de administración
+META_APP_ID=                                     # registro integrado de Meta (proveedor tecnológico)

@@ -2,6 +2,9 @@ import { serve as servirNode } from '@hono/node-server';
 import { Hono } from 'hono';
 import { serve as servirInngest } from 'inngest/hono';
 import { apiConsola } from './api-consola.js';
+import { apiOperaciones } from './api-operaciones.js';
+import { apiPlataforma } from './api-plataforma.js';
+import { apiPortal } from './api-portal.js';
 import { inngest } from './cliente-inngest.js';
 import { config } from './config.js';
 import { funciones } from './funciones/index.js';
@@ -13,6 +16,15 @@ app.get('/salud', (c) => c.json({ ok: true }));
 
 // Acciones de la consola de cumplimiento
 app.route('/api/consola', apiConsola);
+
+// Vista operativa de la inmobiliaria (administrador y ejecutivo)
+app.route('/api/operaciones', apiOperaciones);
+
+// Portal del cliente (autenticación por token del enlace)
+app.route('/api/portal', apiPortal());
+
+// Administración de la plataforma (alta de organizaciones)
+app.route('/api/plataforma', apiPlataforma);
 
 // Flujos durables
 app.on(['GET', 'POST', 'PUT'], '/api/inngest', servirInngest({ client: inngest, functions: funciones }));

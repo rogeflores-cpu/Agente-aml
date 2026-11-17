@@ -15,7 +15,7 @@ import { db, sinError } from './datos.js';
 type Vars = { usuarioId: string; correo: string };
 export const apiPlataforma = new Hono<{ Variables: Vars }>();
 
-const origenPlataforma = () => process.env.PLATAFORMA_ORIGEN ?? 'http://localhost:5174';
+const origenPlataforma = () => process.env.PLATAFORMA_ORIGEN ?? 'http://localhost:5175';
 
 apiPlataforma.use('*', cors({ origin: (o) => (o === origenPlataforma() ? o : null), allowHeaders: ['Authorization', 'Content-Type'] }));
 

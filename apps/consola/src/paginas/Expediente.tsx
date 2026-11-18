@@ -84,7 +84,7 @@ export function Expediente({ fuente, id, rol, volver }: { fuente: Fuente; id: st
       </nav>
 
       {pestana === 'resumen' && <Resumen e={e} />}
-      {pestana === 'datos' && <Datos e={e} />}
+      {pestana === 'datos' && <Datos e={e} fuente={fuente} puedeCorregir={rol === 'oficial' || rol === 'oficial_suplente'} alCambiar={recargar} />}
       {pestana === 'documentos' && <Documentos e={e} fuente={fuente} />}
       {pestana === 'listas' && <Listas e={e} fuente={fuente} alCambiar={recargar} />}
       {pestana === 'riesgo' && <Riesgo e={e} fuente={fuente} alCambiar={recargar} />}
@@ -151,33 +151,99 @@ function Resumen({ e }: { e: DetalleExpediente }) {
   );
 }
 
-function Datos({ e }: { e: DetalleExpediente }) {
+function Datos({ e, fuente, puedeCorregir, alCambiar }: { e: DetalleExpediente; fuente: Fuente; puedeCorregir: boolean; alCambiar: () => void }) {
   const doc = (id: string | null) => e.documentos.find((d) => d.id === id);
+  const [editando, setEditando] = useState<string | null>(null);
   return (
     <Tarjeta>
       {e.datos.length === 0 ? <Vacio>El cliente aún no ha entregado información.</Vacio> : (
-        <table className="w-full text-sm">
-          <thead><tr className="text-left text-xs text-tinta-suave"><th className="pb-2 font-medium">Dato</th><th className="pb-2 font-medium">Valor</th><th className="pb-2 font-medium">Procedencia</th></tr></thead>
-          <tbody>
-            {e.datos.map((d) => (
-              <tr key={d.campo} className="border-t border-borde align-top">
-                <td className="py-2 pr-4 text-tinta-suave">{etiquetaCampo(d.campo)}</td>
-                <td className="py-2 pr-4">{mostrarValor(d.valor)}</td>
-                <td className="py-2">
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    {d.origen === 'documento'
-                      ? <Insignia clase="bg-indigo-50 text-indigo-800">{NOMBRE_DOCUMENTO[doc(d.documentoId)?.tipo ?? ''] ?? 'Documento'}{d.pagina ? `, p. ${d.pagina}` : ''}</Insignia>
-                      : <Insignia clase="bg-slate-100 text-slate-700">Declarado por el cliente</Insignia>}
-                    {d.confianza != null && d.confianza < 0.85 && <Insignia clase="bg-medio-claro text-medio">lectura dudosa</Insignia>}
-                    {!d.confirmado && <Insignia clase="bg-medio-claro text-medio">sin confirmar</Insignia>}
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead><tr className="text-left text-xs text-tinta-suave"><th className="pb-2 font-medium">Dato</th><th className="pb-2 font-medium">Valor</th><th className="pb-2 font-medium">Procedencia</th><th /></tr></thead>
+            <tbody>
+              {e.datos.map((d) => (
+                <FilaDato key={d.campo} d={d} documento={NOMBRE_DOCUMENTO[doc(d.documentoId)?.tipo ?? ''] ?? 'Documento'}
+                  editando={editando === d.campo} puedeCorregir={puedeCorregir && !d.campo.startsWith('doc.')}
+                  abrir={() => setEditando(d.campo)} cerrar={() => setEditando(null)}
+                  guardar={async (valor, motivo) => { await fuente.corregirDato(e.id, d.campo, valor, motivo); setEditando(null); alCambiar(); }} />
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </Tarjeta>
+  );
+}
+
+/** Texto editable del valor actual: listas y objetos como JSON, sí/no como texto. */
+const valorEditable = (v: unknown) =>
+  typeof v === 'boolean' ? (v ? 'sí' : 'no') : typeof v === 'string' ? v : JSON.stringify(v, null, 2);
+
+/** Interpreta lo escrito con el mismo tipo que tenía el valor original. */
+function interpretarValor(original: unknown, texto: string): unknown {
+  if (Array.isArray(original) || (original !== null && typeof original === 'object')) {
+    try { return JSON.parse(texto); } catch { throw new Error('La lista no tiene un formato válido. Conserve los corchetes, llaves y comillas.'); }
+  }
+  return texto.trim();
+}
+
+function FilaDato({ d, documento, editando, puedeCorregir, abrir, cerrar, guardar }: {
+  d: DetalleExpediente['datos'][number]; documento: string; editando: boolean; puedeCorregir: boolean;
+  abrir: () => void; cerrar: () => void; guardar: (valor: unknown, motivo: string) => Promise<void>;
+}) {
+  const [texto, setTexto] = useState(() => valorEditable(d.valor));
+  const [motivo, setMotivo] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [enviando, setEnviando] = useState(false);
+  const multilinea = typeof d.valor === 'object' && d.valor !== null;
+  return (
+    <>
+      <tr className="border-t border-borde align-top">
+        <td className="py-2 pr-4 text-tinta-suave">{etiquetaCampo(d.campo)}</td>
+        <td className="py-2 pr-4">{mostrarValor(d.valor)}</td>
+        <td className="py-2">
+          <div className="flex flex-wrap items-center gap-1.5">
+            {d.origen === 'documento'
+              ? <Insignia clase="bg-indigo-50 text-indigo-800">{documento}{d.pagina ? `, p. ${d.pagina}` : ''}</Insignia>
+              : d.origen === 'revisor'
+                ? <Insignia clase="bg-marca-claro text-marca">Corregido por el oficial</Insignia>
+                : <Insignia clase="bg-slate-100 text-slate-700">Declarado por el cliente</Insignia>}
+            {d.confianza != null && d.confianza < 0.85 && <Insignia clase="bg-medio-claro text-medio">lectura dudosa</Insignia>}
+            {!d.confirmado && <Insignia clase="bg-medio-claro text-medio">sin confirmar</Insignia>}
+          </div>
+          {d.origen === 'revisor' && d.nota && <p className="mt-1 text-xs text-tinta-suave">Motivo: {d.nota}</p>}
+        </td>
+        <td className="py-2 text-right">
+          {puedeCorregir && !editando && <button onClick={() => { setTexto(valorEditable(d.valor)); setMotivo(''); setError(null); abrir(); }} className="text-xs text-tinta-suave underline hover:text-tinta">Corregir</button>}
+        </td>
+      </tr>
+      {editando && (
+        <tr>
+          <td colSpan={4} className="pb-4">
+            <div className="space-y-3 rounded-lg bg-papel p-4">
+              <p className="text-xs text-tinta-suave">
+                La corrección queda a su nombre, con el motivo. El valor anterior se conserva en el historial. Si cambia un nombre, se vuelve a cotejar con las listas.
+              </p>
+              <label className="block text-sm">
+                <span className="mb-1 block font-medium">Valor correcto</span>
+                {multilinea
+                  ? <textarea value={texto} onChange={(x) => setTexto(x.target.value)} rows={6} className="w-full rounded-lg border border-borde px-3 py-2 font-mono text-xs" />
+                  : <input value={texto} onChange={(x) => setTexto(x.target.value)} className="w-full rounded-lg border border-borde px-3 py-2" />}
+              </label>
+              <AreaTexto valor={motivo} setValor={setMotivo} placeholder="Motivo de la corrección y su fuente (por ejemplo: dato verificado en el DPI original o en llamada con el cliente)" />
+              {error && <Mensaje tipo="error">{error}</Mensaje>}
+              <div className="flex gap-2">
+                <Boton disabled={enviando || motivo.trim().length < 20 || !texto.trim()} onClick={async () => {
+                  setEnviando(true); setError(null);
+                  try { await guardar(interpretarValor(d.valor, texto), motivo); } catch (x) { setError((x as Error).message); } finally { setEnviando(false); }
+                }}>Guardar corrección</Boton>
+                <Boton tipo="secundario" onClick={cerrar}>Cancelar</Boton>
+              </div>
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
   );
 }
 

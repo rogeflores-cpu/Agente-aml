@@ -31,6 +31,8 @@ export interface Dato {
   pagina: number | null;
   confianza: number | null;
   confirmado: boolean;
+  /** Motivo, cuando el oficial corrigió el dato. */
+  nota?: string | null;
 }
 
 export interface DocumentoExp { id: string; tipo: string; estado: string; canal: string; sha256: string; creadoEn: string }
@@ -134,6 +136,7 @@ export interface FilaOperacion {
   moneda: string;
   inmueble: Record<string, string>;
   creadaEn: string;
+  estado: 'abierta' | 'cerrada' | 'cancelada';
   partes: ParteOperativa[];
 }
 
@@ -184,4 +187,8 @@ export interface Fuente {
   registrarOperacion(organizacionId: string, op: NuevaOperacion): Promise<{ codigo: string }>;
   reenviarEnlace(expedienteId: string): Promise<ResultadoReenvio>;
   registrarPagoEfectivo(p: NuevoPagoEfectivo): Promise<void>;
+  /** Cerrada = escritura otorgada; cancelada = no se realizó. Fija el fin de la relación (art. 34). */
+  cerrarOperacion(operacionId: string, estado: 'cerrada' | 'cancelada'): Promise<void>;
+  /** El oficial corrige un dato con motivo; queda como corregido por el oficial. */
+  corregirDato(expedienteId: string, campo: string, valor: unknown, motivo: string): Promise<void>;
 }

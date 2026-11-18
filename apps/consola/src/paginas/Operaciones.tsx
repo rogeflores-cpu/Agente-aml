@@ -17,6 +17,8 @@ export const ESTADOS_COMERCIALES: Record<EstadoComercial, { texto: string; clase
   no_aprobado: { texto: 'No aprobado', clase: 'bg-slate-200 text-slate-800' },
 };
 
+const ESTADOS_OPERACION = { abierta: 'Abierta', cerrada: 'Cerrada · escritura otorgada', cancelada: 'Cancelada' } as const;
+
 export function Operaciones({ fuente, organizacionId }: { fuente: Fuente; organizacionId: string }) {
   const [ops, setOps] = useState<FilaOperacion[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -24,6 +26,8 @@ export function Operaciones({ fuente, organizacionId }: { fuente: Fuente; organi
   const [aviso, setAviso] = useState<{ tipo: 'ok' | 'aviso' | 'error'; texto: string; url?: string } | null>(null);
   const [busqueda, setBusqueda] = useState('');
   const [pagoPara, setPagoPara] = useState<ParteOperativa | null>(null);
+  const [confirmando, setConfirmando] = useState<{ op: FilaOperacion; estado: 'cerrada' | 'cancelada' } | null>(null);
+  const [cerrando, setCerrando] = useState(false);
 
   const cargar = useCallback(() => fuente.operaciones(organizacionId).then(setOps).catch((e) => setError(e.message)), [fuente, organizacionId]);
   useEffect(() => { cargar(); }, [cargar]);
@@ -63,6 +67,20 @@ export function Operaciones({ fuente, organizacionId }: { fuente: Fuente; organi
     } catch (e) {
       setAviso({ tipo: 'error', texto: (e as Error).message });
     }
+  };
+
+  const cerrarOperacion = async () => {
+    if (!confirmando) return;
+    setCerrando(true); setAviso(null);
+    try {
+      await fuente.cerrarOperacion(confirmando.op.id, confirmando.estado);
+      setAviso({ tipo: 'ok', texto: `Operación ${confirmando.op.codigo} ${confirmando.estado === 'cerrada' ? 'cerrada con escritura otorgada' : 'cancelada'}.` });
+      setConfirmando(null);
+      cargar();
+    } catch (e) {
+      setAviso({ tipo: 'error', texto: (e as Error).message });
+      setConfirmando(null);
+    } finally { setCerrando(false); }
   };
 
   return (
@@ -108,7 +126,10 @@ export function Operaciones({ fuente, organizacionId }: { fuente: Fuente; organi
           {visibles.map((o) => (
             <Tarjeta key={o.id}
               titulo={<span>{o.codigo} <span className="font-normal text-tinta-suave">· {o.tipo === 'intermediacion' ? 'Intermediación' : 'Compraventa'}</span></span>}
-              accion={<span className="text-sm tabular-nums">{moneda(o.precio, o.moneda)}</span>}>
+              accion={<span className="flex items-center gap-2">
+                {o.estado !== 'abierta' && <Insignia clase="bg-slate-100 text-slate-700">{ESTADOS_OPERACION[o.estado]}</Insignia>}
+                <span className="text-sm tabular-nums">{moneda(o.precio, o.moneda)}</span>
+              </span>}>
               <p className="mb-3 text-sm text-tinta-suave">
                 {[o.inmueble.finca, o.inmueble.direccion, o.inmueble.municipio, o.inmueble.departamento].filter(Boolean).join(', ') || 'Inmueble sin datos'}
                 {' · '}registrada el {fecha(o.creadaEn)}
@@ -122,7 +143,8 @@ export function Operaciones({ fuente, organizacionId }: { fuente: Fuente; organi
                 </thead>
                 <tbody>
                   {o.partes.map((p) => {
-                    const enCurso = p.estado !== 'aprobado' && p.estado !== 'no_aprobado';
+                    const abierta = o.estado === 'abierta';
+                    const enCurso = abierta && p.estado !== 'aprobado' && p.estado !== 'no_aprobado';
                     return (
                       <tr key={p.expedienteId} className="border-t border-borde">
                         <td className="py-2.5">
@@ -135,7 +157,7 @@ export function Operaciones({ fuente, organizacionId }: { fuente: Fuente; organi
                         <td className="py-2.5">
                           <div className="flex justify-end gap-2">
                             {enCurso && <Boton tipo="secundario" onClick={() => reenviar(p)}>Reenviar enlace</Boton>}
-                            {p.parte === 'comprador' && <Boton tipo="secundario" onClick={() => setPagoPara(p)}>Registrar efectivo</Boton>}
+                            {abierta && p.parte === 'comprador' && <Boton tipo="secundario" onClick={() => setPagoPara(p)}>Registrar efectivo</Boton>}
                           </div>
                         </td>
                       </tr>
@@ -143,6 +165,29 @@ export function Operaciones({ fuente, organizacionId }: { fuente: Fuente; organi
                   })}
                 </tbody>
               </table>
+              {o.estado === 'abierta' && (
+                confirmando?.op.id === o.id ? (
+                  <div className="mt-4 space-y-3 rounded-lg bg-papel p-4 text-sm">
+                    <p>
+                      {confirmando.estado === 'cerrada'
+                        ? `¿Confirma que la escritura de ${o.codigo} ya se otorgó? La operación queda cerrada y no se puede reabrir.`
+                        : `¿Confirma que ${o.codigo} no se realizará? La operación queda cancelada y no se puede reabrir.`}
+                      {' '}Desde hoy corre el plazo de conservación de 5 años de sus expedientes (art. 34).
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <Boton tipo={confirmando.estado === 'cancelada' ? 'peligro' : 'primario'} disabled={cerrando} onClick={cerrarOperacion}>
+                        {confirmando.estado === 'cerrada' ? 'Sí, cerrar operación' : 'Sí, cancelar operación'}
+                      </Boton>
+                      <Boton tipo="secundario" disabled={cerrando} onClick={() => setConfirmando(null)}>No, volver</Boton>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-4 flex flex-wrap justify-end gap-2 border-t border-borde pt-3">
+                    <Boton tipo="secundario" onClick={() => setConfirmando({ op: o, estado: 'cancelada' })}>Cancelar operación</Boton>
+                    <Boton tipo="secundario" onClick={() => setConfirmando({ op: o, estado: 'cerrada' })}>Cerrar: escritura otorgada</Boton>
+                  </div>
+                )
+              )}
             </Tarjeta>
           ))}
         </div>

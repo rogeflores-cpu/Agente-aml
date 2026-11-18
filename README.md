@@ -15,8 +15,8 @@ persona autorizada (oficial de cumplimiento o quien ejerza la función).
 | `packages/riesgo` | Motor de riesgo determinista: cuatro factores (art. 9), reglas ONU/GAFI/PEP/DDC, señales del sector, efectivo (art. 31), lista GAFI vigente. | 19 |
 | `packages/listas` | Lista consolidada ONU: lectura del XML, normalización y cotejo aproximado, cambios entre versiones. | 9 |
 | `packages/agente` | Agente conversacional del cliente, catálogo por parte y tipo de persona (incluye cargo público de representante y beneficiarios finales), revisor, clasificador y lector de documentos, prellenado, términos reservados. | 48 |
-| `apps/flujos` | Servidor: webhook de WhatsApp, API de consola, operaciones, portal y plataforma; 11 flujos durables; correo con Resend. | 111 |
-| `apps/consola` | Consola: bandeja de cumplimiento (oficial, suplente, auditor) y vista operativa (administrador, ejecutivo: registrar operaciones, reenviar enlaces, efectivo). Bloqueo preventivo y comunicación al MP. Modo demostración. | 16 + recorrido en navegador |
+| `apps/flujos` | Servidor: webhook de WhatsApp, API de consola, operaciones, portal y plataforma; 11 flujos durables; correo con Resend. | 112 |
+| `apps/consola` | Consola: bandeja de cumplimiento (oficial, suplente, auditor) y vista operativa (administrador, ejecutivo: registrar operaciones, reenviar enlaces, efectivo). Bloqueo preventivo y comunicación al MP, corrección de datos por el oficial, cierre o cancelación de la operación. Modo demostración. | 18 + recorrido en navegador |
 | `apps/portal` | Portal del cliente con la marca de la organización: conversación con el agente, carga de documentos, pendientes, envío a revisión, paso a WhatsApp. Modo demostración. | 7 + recorrido en navegador |
 | `apps/plataforma` | Administración: alta de organizaciones por pasos, usuarios, aprobación de metodología (art. 8), conexión de WhatsApp (manual o registro integrado de Meta), listas GAFI, designaciones S/RES/1373, avisos. Modo demostración. | 8 + recorrido en navegador |
 
@@ -165,5 +165,4 @@ Producción en Render (`render.yaml`) con Supabase e Inngest, bajo `amlconsultin
 
 1. Montaje en un proyecto Supabase real, proveedor tecnológico de Meta y plantillas aprobadas; prueba con
    documentos y conversaciones reales.
-2. Botón para cerrar la operación en la consola y pantalla del oficial para corregir datos.
-3. Piloto con dos o tres inmobiliarias.
+2. Piloto con dos o tres inmobiliarias.

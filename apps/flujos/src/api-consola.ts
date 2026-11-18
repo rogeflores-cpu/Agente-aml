@@ -10,7 +10,8 @@ import { construirPerfil } from './perfil.js';
 import {
   ajustePermitido, correoVerificado, evaluacionVigente, mismaPersona, nivelMinimoImpuesto, normalizarDocumento, plenarioValido,
 } from './reglas-consola.js';
-import { cargarEntradaRevision, cotejosFaltantes, emitirCotejosPendientes } from './repositorio.js';
+import { campoValido, type Campo } from '@agente-aml/agente';
+import { cargarEntradaRevision, cotejosFaltantes, emitirCotejosPendientes, sincronizarPendientes } from './repositorio.js';
 
 /**
  * API de la consola de cumplimiento. Las lecturas las hace la consola
@@ -399,6 +400,56 @@ apiConsola.post('/bloqueos/:id/liberar', async (c) => {
     return c.json({ error: error.message }, codigoHttp(error.code));
   }
   return c.json({ ok: true });
+});
+
+// ------------------------------------------- corrección de datos por el oficial
+/**
+ * Valida el valor que el oficial escribe para un campo del catálogo. Devuelve
+ * el valor normalizado o un mensaje de error.
+ */
+export function valorCorregido(def: Campo, valor: unknown): { valor: unknown } | { error: string } {
+  switch (def.tipo) {
+    case 'lista':
+      return Array.isArray(valor) && valor.length > 0 ? { valor } : { error: 'Indique la lista completa (al menos un elemento).' };
+    case 'si_no': {
+      const v = typeof valor === 'string' ? valor.trim().toLowerCase() : valor;
+      if (v === true || v === 'sí' || v === 'si') return { valor: true };
+      if (v === false || v === 'no') return { valor: false };
+      return { error: 'Indique sí o no.' };
+    }
+    case 'opcion':
+      return def.opciones?.includes(String(valor)) ? { valor: String(valor) } : { error: `Opciones válidas: ${def.opciones?.join(', ')}` };
+    case 'fecha':
+      return typeof valor === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(valor) ? { valor } : { error: 'Fecha en formato AAAA-MM-DD.' };
+    default:
+      return typeof valor === 'string' && valor.trim() ? { valor: valor.trim() } : { error: 'Indique el valor.' };
+  }
+}
+
+// El oficial corrige un dato con su nombre y motivo: queda con origen
+// 'revisor' (nunca como dicho por el cliente) y el anterior pierde vigencia
+// pero se conserva. Si cambia un nombre, se vuelve a cotejar de inmediato.
+apiConsola.post('/expedientes/:id/datos', async (c) => {
+  const { exp, error } = await exigirOficial(c, c.req.param('id'));
+  if (error) return error;
+  const cuerpo = z.object({
+    campo: z.string().min(3),
+    valor: z.unknown(),
+    motivo: z.string().trim().min(20, 'Explique el motivo de la corrección (al menos 20 caracteres)'),
+  }).safeParse(await c.req.json().catch(() => ({})));
+  if (!cuerpo.success) return invalido(c, cuerpo.error);
+  const entrada = await cargarEntradaRevision(exp.id);
+  const def = campoValido(entrada.contexto, cuerpo.data.campo);
+  if (!def) return c.json({ error: 'Ese dato no corresponde a este expediente.' }, 400);
+  const v = valorCorregido(def, cuerpo.data.valor);
+  if ('error' in v) return c.json({ error: v.error }, 400);
+  const { error: e } = await comoUsuario(c).rpc('corregir_dato_oficial', {
+    p_expediente: exp.id, p_campo: def.campo, p_valor: v.valor, p_motivo: cuerpo.data.motivo,
+  });
+  if (e) return c.json({ error: e.message }, codigoHttp(e.code));
+  await sincronizarPendientes(exp.id);
+  const cotejos = await emitirCotejosPendientes(exp.id);
+  return c.json({ ok: true, cotejosSolicitados: cotejos });
 });
 
 // ---------------------------------------------------------- cerrar alerta

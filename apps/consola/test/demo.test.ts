@@ -61,4 +61,22 @@ describe('fuente de demostración: mismas reglas que la base', () => {
     e = await f.expediente('exp-a');
     expect(e.bloqueos[0].levantadoEn).not.toBeNull();
   });
+  it('el oficial corrige un dato con motivo y queda como corregido por el oficial', async () => {
+    const f = fuenteDemo();
+    const antes = await f.expediente('exp-a');
+    const campo = antes.datos.find((d) => typeof d.valor === 'string')!.campo;
+    await expect(f.corregirDato('exp-a', campo, 'Nuevo valor', 'corto')).rejects.toThrow(/20 caracteres/);
+    await f.corregirDato('exp-a', campo, 'Nuevo valor', 'Verificado en el documento original');
+    const d = (await f.expediente('exp-a')).datos.find((x) => x.campo === campo)!;
+    expect(d).toMatchObject({ valor: 'Nuevo valor', origen: 'revisor', nota: 'Verificado en el documento original' });
+  });
+
+  it('art. 43: con bloqueo vigente la operación no se cierra con escritura, pero sí se cancela', async () => {
+    const f = fuenteDemo();
+    await f.disponer('ver-a1', 'coincidencia_confirmada', 'Nombre, fecha de nacimiento y documento coinciden con el listado.');
+    const op = (await f.expediente('exp-a')).codigoOperacion;
+    await expect(f.cerrarOperacion(op, 'cerrada')).rejects.toThrow(/cumplimiento/);
+    await f.cerrarOperacion(op, 'cancelada');
+    await expect(f.cerrarOperacion(op, 'cancelada')).rejects.toThrow(/ya está/);
+  });
 });

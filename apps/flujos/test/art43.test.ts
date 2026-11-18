@@ -76,3 +76,18 @@ describe('despliegue', () => {
     expect(variablesFaltantes({ ...sinInngest, INNGEST_DEV: '1' })).toEqual([]);
   });
 });
+
+describe('corrección de datos por el oficial', () => {
+  it('valida el valor según el tipo de campo del catálogo', async () => {
+    const { valorCorregido } = await import('../src/api-consola.js');
+    const base = { campo: 'x', etiqueta: 'x', pregunta: 'x', aplica: () => true };
+    expect(valorCorregido({ ...base, tipo: 'texto' } as any, '  Ingeniero civil ')).toEqual({ valor: 'Ingeniero civil' });
+    expect(valorCorregido({ ...base, tipo: 'texto' } as any, '  ')).toHaveProperty('error');
+    expect(valorCorregido({ ...base, tipo: 'si_no' } as any, 'Sí')).toEqual({ valor: true });
+    expect(valorCorregido({ ...base, tipo: 'si_no' } as any, 'tal vez')).toHaveProperty('error');
+    expect(valorCorregido({ ...base, tipo: 'opcion', opciones: ['a', 'b'] } as any, 'c')).toHaveProperty('error');
+    expect(valorCorregido({ ...base, tipo: 'fecha' } as any, '1980-02-30x')).toHaveProperty('error');
+    expect(valorCorregido({ ...base, tipo: 'lista' } as any, [])).toHaveProperty('error');
+    expect(valorCorregido({ ...base, tipo: 'lista' } as any, [{ nombre: 'Ana', porcentaje: 60 }])).toEqual({ valor: [{ nombre: 'Ana', porcentaje: 60 }] });
+  });
+});

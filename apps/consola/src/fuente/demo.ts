@@ -200,6 +200,7 @@ export function fuenteDemo(): Fuente {
     { id: 'avo1', asunto: 'Cliente sin completar su información', cuerpo: 'María José Castillo Herrera no ha completado su expediente después de 3 recordatorios.', prioridad: 'normal', expedienteId: null, creadaEn: hace(20), leida: false },
   ];
   const pagosEfectivo: { expedienteId: string; fecha: string; montoUsd: number }[] = [];
+  const estadoOperacion = new Map<string, 'cerrada' | 'cancelada'>();
   let correlativo = 16;
   const buscar = (id: string) => {
     const e = estado.expedientes.find((x) => x.id === id);
@@ -378,7 +379,8 @@ export function fuenteDemo(): Fuente {
         const creada = e.bitacora.at(-1)?.ocurridoEn ?? hace(1);
         const op = porCodigo.get(e.codigoOperacion) ?? {
           id: e.codigoOperacion, codigo: e.codigoOperacion, tipo: e.operacion.tipo as FilaOperacion['tipo'],
-          precio: e.operacion.precio, moneda: e.operacion.moneda, inmueble: { ...e.operacion.inmueble }, creadaEn: creada, partes: [],
+          precio: e.operacion.precio, moneda: e.operacion.moneda, inmueble: { ...e.operacion.inmueble }, creadaEn: creada,
+          estado: estadoOperacion.get(e.codigoOperacion) ?? 'abierta', partes: [],
         };
         // Solo campos que el área comercial puede ver (art. 38).
         op.partes.push({
@@ -440,6 +442,29 @@ export function fuenteDemo(): Fuente {
           prioridad: 'alta', expedienteId: p.expedienteId, creadaEn: new Date().toISOString(), leida: false,
         });
       }
+    },
+
+    async cerrarOperacion(id, nuevo) {
+      if (rol === 'auditor') throw new Error('Sin permiso para cerrar la operación');
+      if (estadoOperacion.has(id)) throw new Error('La operación ya está cerrada o cancelada');
+      const expedientes = estado.expedientes.filter((e) => e.codigoOperacion === id);
+      if (!expedientes.length) throw new Error('Operación no encontrada');
+      // Igual que la base: con un bloqueo preventivo vigente no se cierra con escritura (mensaje neutro, art. 38)
+      if (nuevo === 'cerrada' && expedientes.some((e) => e.bloqueos.some((b) => !b.levantadoEn)
+          || e.bloqueosRelacionados.some((r) => !r.liberacion))) {
+        throw new Error('La operación no puede cerrarse en este momento. Consulte con el área de cumplimiento.');
+      }
+      estadoOperacion.set(id, nuevo);
+    },
+    async corregirDato(id, campo, valor, motivo) {
+      exigirCumplimiento();
+      if (rol !== 'oficial' && rol !== 'oficial_suplente') throw new Error('Solo el oficial de cumplimiento corrige datos del expediente');
+      if (motivo.trim().length < 20) throw new Error('Explique el motivo de la corrección (al menos 20 caracteres)');
+      const e = buscar(id);
+      const d = e.datos.find((x) => x.campo === campo);
+      if (!d) throw new Error('Ese dato no corresponde a este expediente.');
+      Object.assign(d, { valor, origen: 'revisor', documentoId: null, pagina: null, confianza: null, confirmado: true, nota: motivo.trim() });
+      registrar(e, 'insert', 'datos_expediente');
     },
   };
 }

@@ -1,6 +1,6 @@
 import { configuracionBaseInmobiliaria, validarConfiguracion } from '@agente-aml/riesgo';
 import { hoyLocal, nitConFormato, nitVerificadorCorrecto, subdominioValido } from '../validacion';
-import type { AvisoPlataforma, DetalleOrganizacion, EstadoAlta, Fuente, ListaGafi } from './tipos';
+import type { AvisoPlataforma, Designacion1373, DetalleOrganizacion, EstadoAlta, Fuente, ListaGafi } from './tipos';
 
 /**
  * Fuente de demostración: organizaciones ficticias en memoria, con las mismas
@@ -55,6 +55,7 @@ export function fuenteDemo(): Fuente {
     organizacion({ id: 'org-b', nombre: 'Casas del Lago', legal: 'Casas del Lago, Sociedad Anónima', nit: '11-6', sub: 'casas-del-lago', color: '#1d4ed8', ive: null, dias: 6, aprobada: false, usuarios: [['gerencia@casasdellago.example', 'administrador']], whatsapp: 'pendiente' }),
   ];
   const listas: ListaGafi[] = [];
+  const designaciones: Designacion1373[] = [];
   const avisos: AvisoPlataforma[] = [
     { id: 'av-1', asunto: 'Cargar listas del GAFI', cuerpo: 'No hay listas del GAFI cargadas. El motor de riesgo no puede aplicar el art. 24 ii hasta cargarlas.', creadoEn: hace(1), atendidoEn: null },
   ];
@@ -159,6 +160,22 @@ export function fuenteDemo(): Fuente {
       if (d.altoRiesgo.some((p) => d.monitoreo.includes(p))) throw new Error('Un país no puede estar en ambas listas');
       listas.unshift({ id: `gafi-${Date.now()}`, ...d, cargadaPor: sesion?.correo ?? 'admin', cargadaEn: new Date().toISOString() });
       listas.sort((a, b) => b.plenario.localeCompare(a.plenario));
+    },
+    async designaciones1373() { return copia(designaciones); },
+    async registrarDesignacion1373(d) {
+      const hoy = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Guatemala' });
+      if (d.designadaEl > hoy) throw new Error('La fecha de la designación no puede ser futura');
+      if (d.nombre.trim().length < 3 || d.autoridad.trim().length < 3 || d.referencia.trim().length < 3) {
+        throw new Error('Indique nombre, autoridad y referencia del documento');
+      }
+      designaciones.unshift({ id: `des-${Date.now()}`, ...d, fuenteUrl: d.fuenteUrl ?? null, cargadaPor: sesion?.correo ?? 'admin',
+        cargadaEn: new Date().toISOString(), revocadaEl: null, revocacionReferencia: null });
+    },
+    async revocarDesignacion1373(id, revocadaEl, referencia) {
+      const d = designaciones.find((x) => x.id === id);
+      if (!d || d.revocadaEl) throw new Error('Designación no encontrada o ya revocada');
+      if (referencia.trim().length < 3) throw new Error('Referencia del documento que revoca');
+      Object.assign(d, { revocadaEl, revocacionReferencia: referencia.trim() });
     },
     async avisos() { return copia(avisos); },
     async atenderAviso(id) {

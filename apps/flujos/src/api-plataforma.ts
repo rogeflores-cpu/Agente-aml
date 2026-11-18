@@ -2,6 +2,7 @@ import { configuracionBaseInmobiliaria, validarConfiguracion, type Configuracion
 import { Hono, type Context } from 'hono';
 import { cors } from 'hono/cors';
 import { z } from 'zod';
+import { inngest } from './cliente-inngest.js';
 import { config } from './config.js';
 import { db, sinError } from './datos.js';
 
@@ -367,6 +368,64 @@ apiPlataforma.get('/listas-gafi', async (c) => {
     .select('id, plenario, alto_riesgo, monitoreo, fuente_alto_riesgo, fuente_monitoreo, cargada_por, cargada_en')
     .order('plenario', { ascending: false }).limit(12));
   return c.json({ listas: filas });
+});
+
+// ------------------------------------------------- designaciones S/RES/1373 (art. 43 c)
+// No están en la lista consolidada de la ONU ni tienen descarga automática: se
+// registran a mano con la autoridad que designa y la referencia del documento.
+// No se modifican ni se borran; una designación se revoca con su referencia.
+
+const fechaIso = /^\d{4}-\d{2}-\d{2}$/;
+
+export const esquemaDesignacion = z.object({
+  tipo: z.enum(['individual', 'entidad']),
+  nombre: z.string().trim().min(3, 'Nombre completo o razón social'),
+  alias: z.array(z.string().trim().min(2)).max(30).default([]),
+  documentos: z.array(z.string().trim().min(3)).max(20).default([]),
+  fechasNacimiento: z.array(z.string().regex(/^\d{4}(-\d{2}-\d{2})?$/, 'AAAA o AAAA-MM-DD')).max(10).default([]),
+  nacionalidades: z.array(z.string().regex(/^[A-Z]{2}$/, 'Código ISO de dos letras')).max(10).default([]),
+  autoridad: z.string().trim().min(3, 'Autoridad o Estado que designa'),
+  referencia: z.string().trim().min(3, 'Número de resolución u oficio'),
+  fuenteUrl: z.string().url().optional(),
+  designadaEl: z.string().regex(fechaIso, 'AAAA-MM-DD'),
+}).refine((d) => d.designadaEl <= hoyGuatemala(), { message: 'La fecha de la designación no puede ser futura', path: ['designadaEl'] });
+
+apiPlataforma.get('/designaciones-1373', async (c) => {
+  const filas = await sinError(db().from('designaciones_1373')
+    .select('id, tipo, nombre, alias, documentos, fechas_nacimiento, nacionalidades, autoridad, referencia, fuente_url, designada_el, cargada_por, cargada_en, revocada_el, revocacion_referencia, revocada_por, revocada_en')
+    .order('cargada_en', { ascending: false }).limit(500));
+  return c.json({ designaciones: filas });
+});
+
+apiPlataforma.post('/designaciones-1373', async (c) => {
+  const p = esquemaDesignacion.safeParse(await cuerpo(c));
+  if (!p.success) return invalido(c, p.error);
+  const d = p.data;
+  const { data, error } = await db().from('designaciones_1373').insert({
+    tipo: d.tipo, nombre: d.nombre, alias: d.alias, documentos: d.documentos, fechas_nacimiento: d.fechasNacimiento,
+    nacionalidades: d.nacionalidades, autoridad: d.autoridad, referencia: d.referencia, fuente_url: d.fuenteUrl ?? null,
+    designada_el: d.designadaEl, cargada_por: c.get('correo'),
+  }).select('id').single();
+  if (error || !data) return c.json({ error: error?.message ?? 'No se pudo registrar la designación' }, 400);
+  // Control permanente: se coteja de inmediato toda la cartera activa contra la designación nueva
+  await inngest.send({ name: 'aml/designacion_1373.registrada', data: { designacionId: (data as { id: string }).id } });
+  return c.json({ ok: true, id: (data as { id: string }).id }, 201);
+});
+
+apiPlataforma.post('/designaciones-1373/:id/revocar', async (c) => {
+  const p = z.object({
+    revocadaEl: z.string().regex(fechaIso, 'AAAA-MM-DD'),
+    referencia: z.string().trim().min(3, 'Referencia del documento que revoca'),
+  }).refine((d) => d.revocadaEl <= hoyGuatemala(), { message: 'La fecha no puede ser futura', path: ['revocadaEl'] })
+    .safeParse(await cuerpo(c));
+  if (!p.success) return invalido(c, p.error);
+  const { data, error } = await db().from('designaciones_1373').update({
+    revocada_el: p.data.revocadaEl, revocacion_referencia: p.data.referencia, revocada_por: c.get('correo'),
+    revocada_en: new Date().toISOString(),
+  }).eq('id', c.req.param('id')).is('revocada_el', null).select('id').maybeSingle();
+  if (error) return c.json({ error: error.message }, 400);
+  if (!data) return c.json({ error: 'Designación no encontrada o ya revocada' }, 409);
+  return c.json({ ok: true });
 });
 
 apiPlataforma.get('/avisos', async (c) => {

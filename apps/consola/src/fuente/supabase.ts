@@ -60,13 +60,15 @@ export function fuenteSupabase(): Fuente {
     },
 
     async expediente(id): Promise<DetalleExpediente> {
-      const [e, datos, documentos, pendientes, verificaciones, alertas, evaluaciones, decisiones, bitacora] = await Promise.all([
+      const [e, datos, documentos, pendientes, verificaciones, alertas, bloqueos, relacionados, evaluaciones, decisiones, bitacora] = await Promise.all([
         leer<any>(sb.from('expedientes').select('*, operaciones(codigo, tipo, precio, moneda, inmueble, forma_pago)').eq('id', id).single()),
-        leer<any[]>(sb.from('datos_expediente').select('campo, valor, origen, documento_id, pagina, confianza, confirmado_en').eq('expediente_id', id).eq('vigente', true).order('campo')),
+        leer<any[]>(sb.from('datos_expediente').select('campo, valor, origen, documento_id, pagina, confianza, confirmado_en, nota').eq('expediente_id', id).eq('vigente', true).order('campo')),
         leer<any[]>(sb.from('documentos').select('id, tipo, estado, canal, sha256, creado_en').eq('expediente_id', id).order('creado_en')),
         leer<any[]>(sb.from('pendientes').select('id, tipo, descripcion, estado').eq('expediente_id', id).eq('estado', 'abierto')),
         leer<any[]>(sb.from('verificaciones').select('*').eq('expediente_id', id).order('consultado_en', { ascending: false })),
         leer<any[]>(sb.from('alertas').select('*').eq('expediente_id', id).order('creado_en', { ascending: false })),
+        leer<any[]>(sb.from('bloqueos_preventivos').select('*').eq('expediente_id', id).order('creado_en', { ascending: false })),
+        leer<any[]>(sb.rpc('bloqueos_relacionados', { p_expediente: id }) as any),
         leer<any[]>(sb.from('evaluaciones_riesgo').select('*').eq('expediente_id', id).order('calculado_en', { ascending: false })),
         leer<any[]>(sb.from('decisiones').select('*').eq('expediente_id', id).order('decidido_en', { ascending: false })),
         leer<any[]>(sb.from('bitacora').select('id, ocurrido_en, actor_tipo, evento, entidad, hash').eq('entidad_id', id).order('id', { ascending: false }).limit(100)),
@@ -76,7 +78,7 @@ export function fuenteSupabase(): Fuente {
         estado: e.estado, verificacionDiferidaHasta: e.verificacion_diferida_hasta,
         contacto: { nombre: e.contacto_nombre, telefono: e.contacto_telefono, correo: e.contacto_correo, whatsappVinculado: !!e.whatsapp_vinculado_en },
         operacion: { tipo: e.operaciones.tipo, precio: e.operaciones.precio, moneda: e.operaciones.moneda, inmueble: e.operaciones.inmueble ?? {}, formaPago: e.operaciones.forma_pago ?? [] },
-        datos: datos.map((d) => ({ campo: d.campo, valor: d.valor, origen: d.origen, documentoId: d.documento_id, pagina: d.pagina, confianza: d.confianza, confirmado: !!d.confirmado_en })),
+        datos: datos.map((d) => ({ campo: d.campo, valor: d.valor, origen: d.origen, documentoId: d.documento_id, pagina: d.pagina, confianza: d.confianza, confirmado: !!d.confirmado_en, nota: d.nota ?? null })),
         documentos: documentos.map((d) => ({ id: d.id, tipo: d.tipo, estado: d.estado, canal: d.canal, sha256: d.sha256, creadoEn: d.creado_en })),
         pendientes,
         verificaciones: verificaciones.map((v) => ({
@@ -84,6 +86,15 @@ export function fuenteSupabase(): Fuente {
           resultado: v.resultado, coincidencias: v.coincidencias ?? [], justificacion: v.justificacion, dispuestoEn: v.dispuesto_en,
         })),
         alertas: alertas.map((a) => ({ id: a.id, senal: a.senal, descripcion: a.descripcion, estado: a.estado, venceEn: a.vence_en, creadoEn: a.creado_en, cierre: a.cierre })),
+        bloqueos: bloqueos.map((b) => ({
+          id: b.id, fuente: b.fuente, nombre: b.nombre, detectadaEn: b.detectada_en, creadoEn: b.creado_en,
+          comunicadoMpEn: b.comunicado_mp_en, comunicacionReferencia: b.comunicacion_referencia, comunicacionDentroPlazo: b.comunicacion_dentro_plazo,
+          levantadoEn: b.levantado_en, levantamientoMotivo: b.levantamiento_motivo, levantamientoReferencia: b.levantamiento_referencia,
+        })),
+        bloqueosRelacionados: (relacionados ?? []).map((r) => ({
+          bloqueoId: r.bloqueo_id, expedienteOrigen: r.expediente_origen, nombre: r.nombre, fuente: r.fuente, detectadaEn: r.detectada_en,
+          liberacion: r.liberacion_tipo ? { tipo: r.liberacion_tipo, justificacion: r.liberacion_justificacion, liberadoEn: r.liberado_en } : null,
+        })),
         evaluaciones: evaluaciones.map((v) => ({
           id: v.id, calculadoEn: v.calculado_en, puntajes: v.puntajes, puntajeTotal: Number(v.puntaje_total), nivelCalculado: v.nivel_calculado,
           nivelAjustado: v.nivel_ajustado, justificacionAjuste: v.justificacion_ajuste, medidas: v.medidas, reglas: v.reglas_impuestas, senales: v.senales,
@@ -114,6 +125,16 @@ export function fuenteSupabase(): Fuente {
     async cerrarAlerta(id, cierre) {
       await llamar(`/alertas/${id}/cerrar`, { cierre });
     },
+    async registrarComunicacionMp(id, c) {
+      const r = await llamar(`/bloqueos/${id}/comunicacion`, c);
+      return { dentroDePlazo: r.dentroDePlazo ?? null };
+    },
+    async levantarBloqueo(id, motivo, referencia) {
+      await llamar(`/bloqueos/${id}/levantar`, { motivo, referencia });
+    },
+    async liberarExpediente(bloqueoId, expedienteId, tipo, justificacion) {
+      await llamar(`/bloqueos/${bloqueoId}/liberar`, { expedienteId, tipo, justificacion });
+    },
     async urlDocumento(id) {
       const r = await llamar(`/documentos/${id}/url`, undefined, 'GET');
       return r.url ?? null;
@@ -127,7 +148,7 @@ export function fuenteSupabase(): Fuente {
       for (const f of filas) {
         const op: FilaOperacion = porId.get(f.operacion_id) ?? {
           id: f.operacion_id, codigo: f.codigo, tipo: f.tipo, precio: f.precio == null ? null : Number(f.precio),
-          moneda: f.moneda, inmueble: f.inmueble ?? {}, creadaEn: f.operacion_creada_en, partes: [],
+          moneda: f.moneda, inmueble: f.inmueble ?? {}, creadaEn: f.operacion_creada_en, estado: f.estado_operacion ?? 'abierta', partes: [],
         };
         op.partes.push({
           expedienteId: f.expediente_id, parte: f.parte, tipoPersona: f.tipo_persona, nombre: f.contacto_nombre,
@@ -147,6 +168,12 @@ export function fuenteSupabase(): Fuente {
     },
     async registrarPagoEfectivo(p) {
       await llamar('/pagos-efectivo', p, 'POST', '/api/operaciones');
+    },
+    async cerrarOperacion(id, estado) {
+      await llamar(`/operaciones/${id}/cerrar`, { estado }, 'POST', '/api/operaciones');
+    },
+    async corregirDato(id, campo, valor, motivo) {
+      await llamar(`/expedientes/${id}/datos`, { campo, valor, motivo });
     },
   };
 }

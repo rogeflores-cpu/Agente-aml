@@ -14,7 +14,12 @@ export function App({ fuente }: { fuente: Fuente }) {
   const [sesion, setSesion] = useState<Sesion | null | undefined>(undefined);
   const [orgs, setOrgs] = useState<Organizacion[]>([]);
   const [org, setOrg] = useState<Organizacion | null>(null);
-  const [expediente, setExpediente] = useState<string | null>(null);
+  // Los avisos por correo enlazan a /?expediente=<id>: se abre después de iniciar sesión
+  const [expediente, setExpediente] = useState<string | null>(() => {
+    const id = new URLSearchParams(window.location.search).get('expediente');
+    if (id) window.history.replaceState(null, '', window.location.pathname);
+    return id && /^[0-9a-f-]{36}$/i.test(id) ? id : null;
+  });
 
   useEffect(() => { fuente.sesion().then(setSesion); }, [fuente]);
   useEffect(() => {

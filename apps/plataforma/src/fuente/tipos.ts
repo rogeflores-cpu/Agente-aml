@@ -47,6 +47,16 @@ export interface DatosWhatsapp { wabaId: string; phoneNumberId: string; numeroVi
 export interface Aprobacion { organo: string; fecha: string; acta: string }
 export interface ListaGafi { id: string; plenario: string; altoRiesgo: string[]; monitoreo: string[]; fuenteAltoRiesgo: string; fuenteMonitoreo: string; cargadaPor: string; cargadaEn: string }
 export interface NuevaListaGafi { plenario: string; altoRiesgo: string[]; monitoreo: string[]; fuenteAltoRiesgo: string; fuenteMonitoreo: string }
+/** Designación de la S/RES/1373(2001) (art. 43 c), registrada a mano por la plataforma. */
+export interface Designacion1373 {
+  id: string; tipo: 'individual' | 'entidad'; nombre: string; alias: string[]; documentos: string[]; fechasNacimiento: string[];
+  nacionalidades: string[]; autoridad: string; referencia: string; fuenteUrl: string | null; designadaEl: string;
+  cargadaPor: string; cargadaEn: string; revocadaEl: string | null; revocacionReferencia: string | null;
+}
+export interface NuevaDesignacion1373 {
+  tipo: 'individual' | 'entidad'; nombre: string; alias: string[]; documentos: string[]; fechasNacimiento: string[];
+  nacionalidades: string[]; autoridad: string; referencia: string; fuenteUrl?: string; designadaEl: string;
+}
 export interface AvisoPlataforma { id: string; asunto: string; cuerpo: string; creadoEn: string; atendidoEn: string | null }
 
 /** Todo lo que la aplicación necesita. Dos implementaciones: API real y demostración. */
@@ -65,6 +75,9 @@ export interface Fuente {
   conectarWhatsapp(id: string, d: DatosWhatsapp): Promise<{ estado: string; error?: string }>;
   listasGafi(): Promise<ListaGafi[]>;
   cargarListaGafi(d: NuevaListaGafi): Promise<void>;
+  designaciones1373(): Promise<Designacion1373[]>;
+  registrarDesignacion1373(d: NuevaDesignacion1373): Promise<void>;
+  revocarDesignacion1373(id: string, revocadaEl: string, referencia: string): Promise<void>;
   avisos(): Promise<AvisoPlataforma[]>;
   atenderAviso(id: string): Promise<void>;
 }

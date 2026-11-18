@@ -3,15 +3,16 @@ import { ErrorPortal, type FuentePortal } from './tipos';
 const CLAVE = 'aml-enlace';
 
 /**
- * Lee el token del enlace (/e/<token>), lo guarda en la pestaña y lo quita de
- * la barra de direcciones para que no quede a la vista ni en el historial.
+ * Lee el token del enlace (/<organización>/e/<token>, o /e/<token>), lo guarda
+ * en la pestaña y lo quita de la barra de direcciones para que no quede a la
+ * vista ni en el historial.
  */
 export function tokenDelEnlace(): string | null {
-  const m = window.location.pathname.match(/^\/e\/([A-Za-z0-9_-]{43})\/?$/);
+  const m = window.location.pathname.match(/^(\/[a-z0-9-]+)?\/e\/([A-Za-z0-9_-]{43})\/?$/);
   if (m) {
-    try { sessionStorage.setItem(CLAVE, m[1]); } catch { /* sin almacenamiento: se usa solo en memoria */ }
-    window.history.replaceState(null, '', '/e/');
-    return m[1];
+    try { sessionStorage.setItem(CLAVE, m[2]); } catch { /* sin almacenamiento: se usa solo en memoria */ }
+    window.history.replaceState(null, '', `${m[1] ?? ''}/e/`);
+    return m[2];
   }
   try { return sessionStorage.getItem(CLAVE); } catch { return null; }
 }

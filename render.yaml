@@ -1,0 +1,149 @@
+# Agente AML · Despliegue en Render (Blueprint)
+# Guía completa: docs/despliegue.md
+#
+# Cuatro servicios en la región de Virginia (la más cercana a Guatemala y a
+# Supabase us-east-1):
+#   api         servidor apps/flujos (API, webhook de WhatsApp, flujos de Inngest)
+#   consola     consola de cumplimiento y vista operativa
+#   plataforma  administración de la plataforma
+#   portal      portal del cliente: clientes.<dominio>/<organización>/e/<token>
+#
+# Las variables con "sync: false" se piden al crear el Blueprint y nunca se
+# guardan en el repositorio. Los dominios se agregan en el panel de Render
+# (Settings → Custom Domains) como indica la guía.
+
+services:
+  - type: web
+    name: aml-api
+    runtime: node
+    region: virginia
+    plan: starter            # siempre encendido: los webhooks de Meta no esperan a que despierte
+    buildCommand: npx pnpm@10.28.0 install --frozen-lockfile --prod=false
+    startCommand: cd apps/flujos && ./node_modules/.bin/tsx src/servidor.ts
+    healthCheckPath: /salud
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: META_APP_ID
+        sync: false
+      - key: META_APP_SECRET
+        sync: false
+      - key: META_VERIFY_TOKEN
+        generateValue: true  # se copia luego en la configuración del webhook en Meta
+      - key: META_GRAPH_API_VERSION
+        sync: false
+      - key: PORTAL_DOMINIO
+        value: clientes.amlconsultingguatemala.com
+      - key: ENLACE_VIGENCIA_DIAS
+        value: "7"
+      - key: ONU_LISTA_URL
+        value: https://scsanctions.un.org/resources/xml/en/consolidated.xml
+      - key: INNGEST_EVENT_KEY
+        sync: false
+      - key: INNGEST_SIGNING_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: CORREO_REMITENTE
+        value: no-responder@amlconsultingguatemala.com
+      - key: AML_MODELO_CONVERSACION
+        value: claude-haiku-5-5
+      - key: AML_MODELO_DOCUMENTOS
+        value: claude-sonnet-5-5
+      - key: CONSOLA_ORIGEN
+        value: https://consola.amlconsultingguatemala.com
+      - key: PLATAFORMA_ORIGEN
+        value: https://plataforma.amlconsultingguatemala.com
+      - key: PLATAFORMA_ADMINS
+        sync: false
+      - key: ANCLA_BITACORA_URL
+        sync: false
+
+  - type: web
+    name: aml-consola
+    runtime: static
+    buildCommand: npx pnpm@10.28.0 install --frozen-lockfile --prod=false && npx pnpm@10.28.0 --filter @agente-aml/consola build
+    staticPublishPath: apps/consola/dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+    envVars:
+      - key: VITE_SUPABASE_URL
+        sync: false
+      - key: VITE_SUPABASE_ANON_KEY
+        sync: false
+      - key: VITE_API_URL
+        value: https://api.amlconsultingguatemala.com
+
+  - type: web
+    name: aml-plataforma
+    runtime: static
+    buildCommand: npx pnpm@10.28.0 install --frozen-lockfile --prod=false && npx pnpm@10.28.0 --filter @agente-aml/plataforma build
+    staticPublishPath: apps/plataforma/dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: no-referrer
+    envVars:
+      - key: VITE_SUPABASE_URL
+        sync: false
+      - key: VITE_SUPABASE_ANON_KEY
+        sync: false
+      - key: VITE_API_URL
+        value: https://api.amlconsultingguatemala.com
+
+  - type: web
+    name: aml-portal
+    runtime: static
+    buildCommand: npx pnpm@10.28.0 install --frozen-lockfile --prod=false && npx pnpm@10.28.0 --filter @agente-aml/portal build
+    staticPublishPath: apps/portal/dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      # El enlace del cliente lleva su token en la ruta (/e/<token>): nunca se envía como referente
+      - path: /*
+        name: Referrer-Policy
+        value: no-referrer
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Cache-Control
+        value: no-store
+    envVars:
+      - key: VITE_API_URL
+        value: https://api.amlconsultingguatemala.com

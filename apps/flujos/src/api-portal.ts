@@ -112,7 +112,9 @@ export function origenPermitido(origen: string, dominio: string | undefined): bo
   if (/^http:\/\/localhost(:\d+)?$/.test(origen) || /^http:\/\/127\.0\.0\.1(:\d+)?$/.test(origen)) return true;
   if (!dominio) return false;
   const d = dominio.replace(/\./g, '\\.');
-  return new RegExp(`^https://[a-z0-9]([a-z0-9-]{0,40}[a-z0-9])?\\.${d}$`).test(origen);
+  // El portal vive en el dominio mismo (enlaces /<organización>/e/<token>); se acepta además
+  // un subdominio por organización, el esquema anterior.
+  return new RegExp(`^https://([a-z0-9]([a-z0-9-]{0,40}[a-z0-9])?\\.)?${d}$`).test(origen);
 }
 
 export function crearApiPortal(dep: DependenciasPortal, opciones: { limiteMinuto?: number; limiteDocumentosHora?: number } = {}) {

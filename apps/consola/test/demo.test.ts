@@ -39,7 +39,44 @@ describe('fuente de demostración: mismas reglas que la base', () => {
     await f.disponer('ver-a1', 'coincidencia_confirmada', 'Nombre, fecha de nacimiento y documento coinciden con el listado.');
     const e = await f.expediente('exp-a');
     const a = e.alertas.find((x) => x.senal === 'ONU_CONFIRMADA')!;
-    const horas = (new Date(a.venceEn!).getTime() - Date.now()) / 3_600_000;
-    expect(Math.round(horas)).toBe(24);
+    // A6: el plazo corre desde la detección, no desde la confirmación
+    const v = e.verificaciones.find((x) => x.id === 'ver-a1')!;
+    expect(new Date(a.venceEn!).getTime() - new Date(v.consultadoEn).getTime()).toBe(24 * 3_600_000);
+  });
+  it('art. 43: la confirmación deja un bloqueo; la alerta no se cierra sin la comunicación al MP', async () => {
+    const f = fuenteDemo();
+    await f.disponer('ver-a1', 'coincidencia_confirmada', 'Nombre, fecha de nacimiento y documento coinciden con el listado.');
+    let e = await f.expediente('exp-a');
+    const b = e.bloqueos[0];
+    expect(b.levantadoEn).toBeNull();
+    const alerta = e.alertas.find((x) => x.senal === 'ONU_CONFIRMADA')!;
+    await expect(f.cerrarAlerta(alerta.id, 'Cierre sin haber comunicado al Ministerio Público')).rejects.toThrow(/Ministerio Público/);
+    await expect(f.levantarBloqueo(b.id, 'Exclusión de la persona de la lista del Comité', 'SC/1')).rejects.toThrow(/comunicación/);
+    const futuro = new Date(Date.now() + 2 * 86_400_000).toISOString();
+    await expect(f.registrarComunicacionMp(b.id, { comunicadoEn: futuro, referencia: 'Oficio 1' })).rejects.toThrow(/futura/);
+    const r = await f.registrarComunicacionMp(b.id, { comunicadoEn: new Date().toISOString(), referencia: 'Oficio CUMP-15-2026' });
+    expect(r.dentroDePlazo).toBe(true);
+    await f.cerrarAlerta(alerta.id, 'Comunicado al Ministerio Público con oficio CUMP-15-2026');
+    await f.levantarBloqueo(b.id, 'La persona fue excluida de la lista por el Comité de Sanciones', 'SC/99999');
+    e = await f.expediente('exp-a');
+    expect(e.bloqueos[0].levantadoEn).not.toBeNull();
+  });
+  it('el oficial corrige un dato con motivo y queda como corregido por el oficial', async () => {
+    const f = fuenteDemo();
+    const antes = await f.expediente('exp-a');
+    const campo = antes.datos.find((d) => typeof d.valor === 'string')!.campo;
+    await expect(f.corregirDato('exp-a', campo, 'Nuevo valor', 'corto')).rejects.toThrow(/20 caracteres/);
+    await f.corregirDato('exp-a', campo, 'Nuevo valor', 'Verificado en el documento original');
+    const d = (await f.expediente('exp-a')).datos.find((x) => x.campo === campo)!;
+    expect(d).toMatchObject({ valor: 'Nuevo valor', origen: 'revisor', nota: 'Verificado en el documento original' });
+  });
+
+  it('art. 43: con bloqueo vigente la operación no se cierra con escritura, pero sí se cancela', async () => {
+    const f = fuenteDemo();
+    await f.disponer('ver-a1', 'coincidencia_confirmada', 'Nombre, fecha de nacimiento y documento coinciden con el listado.');
+    const op = (await f.expediente('exp-a')).codigoOperacion;
+    await expect(f.cerrarOperacion(op, 'cerrada')).rejects.toThrow(/cumplimiento/);
+    await f.cerrarOperacion(op, 'cancelada');
+    await expect(f.cerrarOperacion(op, 'cancelada')).rejects.toThrow(/ya está/);
   });
 });

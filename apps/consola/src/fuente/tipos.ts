@@ -31,6 +31,8 @@ export interface Dato {
   pagina: number | null;
   confianza: number | null;
   confirmado: boolean;
+  /** Motivo, cuando el oficial corrigió el dato. */
+  nota?: string | null;
 }
 
 export interface DocumentoExp { id: string; tipo: string; estado: string; canal: string; sha256: string; creadoEn: string }
@@ -46,6 +48,17 @@ export interface Evaluacion {
   id: string; calculadoEn: string; puntajes: Record<string, number>; puntajeTotal: number;
   nivelCalculado: Nivel; nivelAjustado: Nivel | null; justificacionAjuste: string | null; medidas: string;
   reglas: ResultadoEvaluacion['reglas']; senales: ResultadoEvaluacion['senales'];
+}
+/** Bloqueo preventivo (art. 43): lo registra la base al confirmarse una coincidencia. */
+export interface Bloqueo {
+  id: string; fuente: string; nombre: string; detectadaEn: string; creadoEn: string;
+  comunicadoMpEn: string | null; comunicacionReferencia: string | null; comunicacionDentroPlazo: boolean | null;
+  levantadoEn: string | null; levantamientoMotivo: string | null; levantamientoReferencia: string | null;
+}
+/** Bloqueo de OTRO expediente que alcanza a este por el nombre (se libera como homónimo o chequeo verificado). */
+export interface BloqueoRelacionado {
+  bloqueoId: string; expedienteOrigen: string; nombre: string; fuente: string; detectadaEn: string;
+  liberacion: { tipo: 'homonimo' | 'verificado'; justificacion: string; liberadoEn: string } | null;
 }
 export interface Decision { id: string; tipo: string; justificacion: string; condiciones: string | null; decididoEn: string; decididoPor: string }
 export interface EventoBitacora { id: number; ocurridoEn: string; actorTipo: string; evento: string; entidad: string; hash: string }
@@ -65,6 +78,8 @@ export interface DetalleExpediente {
   pendientes: Pendiente[];
   verificaciones: Verificacion[];
   alertas: Alerta[];
+  bloqueos: Bloqueo[];
+  bloqueosRelacionados: BloqueoRelacionado[];
   evaluaciones: Evaluacion[];
   decisiones: Decision[];
   bitacora: EventoBitacora[];
@@ -121,6 +136,7 @@ export interface FilaOperacion {
   moneda: string;
   inmueble: Record<string, string>;
   creadaEn: string;
+  estado: 'abierta' | 'cerrada' | 'cancelada';
   partes: ParteOperativa[];
 }
 
@@ -138,7 +154,7 @@ export interface NuevaOperacion {
 
 export interface NuevoPagoEfectivo { expedienteId: string; fecha: string; monto: number; moneda: string; tipoCambioUsd: number }
 
-export interface ResultadoReenvio { canal: 'whatsapp' | 'manual'; url?: string; expiraEn: string }
+export interface ResultadoReenvio { canal: 'whatsapp' | 'correo' | 'manual'; url?: string; expiraEn: string }
 
 export const ROLES_CUMPLIMIENTO: Rol[] = ['oficial', 'oficial_suplente', 'auditor'];
 export const ROLES_OPERATIVOS: Rol[] = ['administrador', 'ejecutivo'];
@@ -159,6 +175,11 @@ export interface Fuente {
   disponer(verificacionId: string, resultado: 'descartada' | 'coincidencia_confirmada', justificacion: string): Promise<void>;
   decidir(expedienteId: string, d: NuevaDecision): Promise<void>;
   cerrarAlerta(alertaId: string, cierre: string): Promise<void>;
+  /** Comunicación escrita al Ministerio Público (art. 43). Devuelve si se hizo dentro de las 24 horas. */
+  registrarComunicacionMp(bloqueoId: string, c: { comunicadoEn: string; referencia: string }): Promise<{ dentroDePlazo: boolean | null }>;
+  levantarBloqueo(bloqueoId: string, motivo: string, referencia: string): Promise<void>;
+  /** El oficial libera este expediente de un bloqueo ajeno y asume la responsabilidad. */
+  liberarExpediente(bloqueoId: string, expedienteId: string, tipo: 'homonimo' | 'verificado', justificacion: string): Promise<void>;
   urlDocumento(documentoId: string): Promise<string | null>;
 
   // Vista operativa (administrador y ejecutivo)
@@ -166,4 +187,8 @@ export interface Fuente {
   registrarOperacion(organizacionId: string, op: NuevaOperacion): Promise<{ codigo: string }>;
   reenviarEnlace(expedienteId: string): Promise<ResultadoReenvio>;
   registrarPagoEfectivo(p: NuevoPagoEfectivo): Promise<void>;
+  /** Cerrada = escritura otorgada; cancelada = no se realizó. Fija el fin de la relación (art. 34). */
+  cerrarOperacion(operacionId: string, estado: 'cerrada' | 'cancelada'): Promise<void>;
+  /** El oficial corrige un dato con motivo; queda como corregido por el oficial. */
+  corregirDato(expedienteId: string, campo: string, valor: unknown, motivo: string): Promise<void>;
 }

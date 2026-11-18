@@ -20,7 +20,7 @@ export const config = {
   get metaVerifyToken() { return requerida('META_VERIFY_TOKEN'); },
   /** Versión de la Graph API de Meta, p. ej. v21.0 (usar la vigente). */
   get graphApiVersion() { return requerida('META_GRAPH_API_VERSION'); },
-  /** Dominio base del portal: https://<subdominio>.<dominio>/e/<token> */
+  /** Dominio del portal: https://<dominio>/<subdominio de la organización>/e/<token> */
   get dominioPortal() { return requerida('PORTAL_DOMINIO'); },
   /** URL del XML de la lista consolidada del Consejo de Seguridad de la ONU. */
   get onuListaUrl() { return requerida('ONU_LISTA_URL'); },

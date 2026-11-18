@@ -5,7 +5,7 @@ import {
 import { terminoReservado } from '@agente-aml/agente';
 
 const entorno = { RESEND_API_KEY: 're_prueba', CORREO_REMITENTE: 'no-responder@amlconsultingguatemala.com' } as NodeJS.ProcessEnv;
-const enlace = 'https://casas-del-lago.clientes.amlconsultingguatemala.com/e/' + 'a'.repeat(43);
+const enlace = 'https://clientes.amlconsultingguatemala.com/casas-del-lago/e/' + 'a'.repeat(43);
 
 afterEach(() => vi.unstubAllGlobals());
 

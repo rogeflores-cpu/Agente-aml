@@ -6,7 +6,7 @@
 #   api         servidor apps/flujos (API, webhook de WhatsApp, flujos de Inngest)
 #   consola     consola de cumplimiento y vista operativa
 #   plataforma  administración de la plataforma
-#   portal      portal del cliente: <subdominio de la organización>.clientes.<dominio>
+#   portal      portal del cliente: clientes.<dominio>/<organización>/e/<token>
 #
 # Las variables con "sync: false" se piden al crear el Blueprint y nunca se
 # guardan en el repositorio. Los dominios se agregan en el panel de Render
@@ -141,7 +141,7 @@ services:
       - path: /*
         name: X-Content-Type-Options
         value: nosniff
-      - path: /e/*
+      - path: /*
         name: Cache-Control
         value: no-store
     envVars:

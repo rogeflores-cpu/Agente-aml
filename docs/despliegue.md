@@ -10,13 +10,13 @@ Dueño del producto: **AML Consulting Guatemala** · dominio `amlconsultingguate
 | `https://api.amlconsultingguatemala.com` | Servidor (`apps/flujos`): API, webhook de WhatsApp, flujos de Inngest | Render, servicio `aml-api` (siempre encendido) |
 | `https://consola.amlconsultingguatemala.com` | Consola de cumplimiento y vista operativa | Render, sitio estático `aml-consola` |
 | `https://plataforma.amlconsultingguatemala.com` | Administración de la plataforma | Render, sitio estático `aml-plataforma` |
-| `https://<organización>.clientes.amlconsultingguatemala.com` | Portal del cliente con la marca de cada inmobiliaria | Render, sitio estático `aml-portal` (subdominio comodín) |
+| `https://clientes.amlconsultingguatemala.com/<organización>/…` | Portal del cliente con la marca de cada inmobiliaria | Render, sitio estático `aml-portal` |
 | Supabase (`<ref>.supabase.co`) | Base de datos, usuarios, documentos y Vault | Supabase, región East US (N. Virginia) |
 | Inngest Cloud | Flujos programados y con reintentos | Inngest |
 
 Todo queda en la región este de EE. UU., la más cercana a Guatemala.
 
-**Por qué Render y no Netlify:** el portal necesita un subdominio por inmobiliaria (`*.clientes…`) y el
+**Por qué Render y no Netlify:** el
 servidor necesita estar encendido siempre para recibir los mensajes de WhatsApp. Además, el plan
 gratuito de Netlify ya lo usa el sitio de FSC y sus créditos se agotarían.
 
@@ -136,23 +136,46 @@ que fusionar la rama de trabajo (`claude/exciting-newton-25fiy2`) en `main` con 
    aparece una línea `ATENCIÓN: faltan variables de entorno: …`. Sin esa línea, la configuración está
    completa.
 
-### 6. Dominios y DNS *(usted, en el proveedor del dominio; le dicto los registros)*
+### 6. Dominios y DNS en Squarespace *(usted; le dicto los valores exactos)*
 
-En Render, **Settings → Custom Domains** de cada servicio:
+El dominio y su DNS están en Squarespace. Solo se agregan registros nuevos: el sitio web y el correo
+actuales de amlconsultingguatemala.com no se tocan. No hace falta ningún subdominio comodín.
+
+**a. Dominios en Render.** En **Settings → Custom Domains** de cada servicio, agregue:
 
 | Servicio | Dominio |
 |---|---|
 | aml-api | `api.amlconsultingguatemala.com` |
 | aml-consola | `consola.amlconsultingguatemala.com` |
 | aml-plataforma | `plataforma.amlconsultingguatemala.com` |
-| aml-portal | `*.clientes.amlconsultingguatemala.com` |
+| aml-portal | `clientes.amlconsultingguatemala.com` |
 
-En el DNS del dominio, un registro **CNAME** por cada uno, apuntando a la dirección `….onrender.com`
-que muestra Render. Para el comodín del portal, Render pide además unos registros de verificación para
-emitir el certificado; los muestra en la misma pantalla. Si el proveedor del dominio no admite
-comodines, avíseme y usamos una alternativa.
+Render muestra, para cada uno, la dirección a la que debe apuntar (termina en `.onrender.com`).
 
-El sitio web actual de amlconsultingguatemala.com no se toca: solo se agregan subdominios nuevos.
+**b. Registros en Squarespace.** En Squarespace: **Dominios → amlconsultingguatemala.com → DNS →
+Configuración de DNS → Registros personalizados → Agregar registro**. Por cada fila:
+
+| Host | Tipo | Datos |
+|---|---|---|
+| `api` | CNAME | la dirección `….onrender.com` de aml-api |
+| `consola` | CNAME | la de aml-consola |
+| `plataforma` | CNAME | la de aml-plataforma |
+| `clientes` | CNAME | la de aml-portal |
+
+En *Host* va solo la palabra (`api`), nunca el dominio completo. Deje el TTL que proponga Squarespace.
+
+**c. Correo (Resend, paso 1 B).** Resend muestra sus registros con el host completo, por ejemplo
+`send.amlconsultingguatemala.com` o `resend._domainkey.amlconsultingguatemala.com`. En Squarespace se
+escribe solo la parte anterior al dominio: `send` o `resend._domainkey`. Si Resend propone un registro
+`_dmarc` y el dominio ya tiene uno, no agregue un segundo: avíseme y lo combinamos.
+
+**d. Comprobar.** Los registros suelen activarse en minutos (hasta 48 horas). Render y Resend marcan
+cada dominio como verificado y Render emite el certificado HTTPS solo.
+
+**Enlaces del portal.** Cada cliente recibe una dirección como
+`https://clientes.amlconsultingguatemala.com/casas-del-lago/e/…`, donde `casas-del-lago` es el
+subdominio que se le asigna a la inmobiliaria en la plataforma. La marca (nombre y color) se muestra
+según el enlace.
 
 ### 7. Primer acceso a la plataforma *(usted)*
 
@@ -180,8 +203,8 @@ El sitio web actual de amlconsultingguatemala.com no se toca: solo se agregan su
 
 ### 9. Primera inmobiliaria piloto *(juntos)*
 
-1. **Plataforma → Nueva organización**: datos legales, NIT, subdominio (será
-   `<subdominio>.clientes.amlconsultingguatemala.com`) y marca.
+1. **Plataforma → Nueva organización**: datos legales, NIT, subdominio (aparecerá en los enlaces:
+   `clientes.amlconsultingguatemala.com/<subdominio>/…`) y marca.
 2. Invite al administrador de la inmobiliaria, al oficial de cumplimiento y a su suplente. Los roles de
    cumplimiento solo se asignan desde la plataforma (art. 16).
 3. Apruebe la metodología de riesgo con el acta del órgano de dirección (art. 8).

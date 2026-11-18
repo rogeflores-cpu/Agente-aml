@@ -2,11 +2,16 @@ import { createHash, randomBytes, randomInt } from 'node:crypto';
 
 export const sha256 = (v: string) => createHash('sha256').update(v).digest('hex');
 
-/** Token del enlace seguro: se envía al cliente y en la base solo queda su hash. */
+/**
+ * Token del enlace seguro: se envía al cliente y en la base solo queda su hash.
+ * Dirección: https://<dominio>/<subdominio de la organización>/e/<token>. Una
+ * sola dirección para todas las organizaciones (sin subdominios comodín en el
+ * DNS); la marca la entrega la API según el token, no la dirección.
+ */
 export function nuevoEnlace(subdominio: string, dominio: string, vigenciaDias: number, ahora = new Date()) {
   const token = randomBytes(32).toString('base64url');
   return {
-    url: `https://${subdominio}.${dominio}/e/${token}`,
+    url: `https://${dominio}/${subdominio}/e/${token}`,
     tokenHash: sha256(token),
     expiraEn: new Date(ahora.getTime() + vigenciaDias * 86_400_000).toISOString(),
   };

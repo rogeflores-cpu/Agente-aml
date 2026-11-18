@@ -106,7 +106,7 @@ describe('webhook de WhatsApp', () => {
 describe('enlaces y códigos', () => {
   it('el enlace lleva la marca de la organización y solo se guarda el hash', () => {
     const e = nuevoEnlace('demo-inmuebles', 'agenteaml.example', 7, new Date('2026-11-11T12:00:00Z'));
-    expect(e.url).toMatch(/^https:\/\/demo-inmuebles\.agenteaml\.example\/e\/[\w-]{43}$/);
+    expect(e.url).toMatch(/^https:\/\/agenteaml\.example\/demo-inmuebles\/e\/[\w-]{43}$/);
     expect(e.tokenHash).toBe(sha256(e.url.split('/e/')[1]));
     expect(e.expiraEn).toBe('2026-11-18T12:00:00.000Z');
   });

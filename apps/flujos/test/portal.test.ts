@@ -217,7 +217,9 @@ describe('vinculación con WhatsApp y envío a revisión', () => {
 
 describe('utilidades', () => {
   it('CORS: subdominios de la plataforma y localhost', () => {
+    expect(origenPermitido('https://agenteaml.example', 'agenteaml.example')).toBe(true);
     expect(origenPermitido('https://demo-inmuebles.agenteaml.example', 'agenteaml.example')).toBe(true);
+    expect(origenPermitido('https://agenteaml.examplex', 'agenteaml.example')).toBe(false);
     expect(origenPermitido('http://localhost:5174', 'agenteaml.example')).toBe(true);
     expect(origenPermitido('https://agenteaml.example.atacante.com', 'agenteaml.example')).toBe(false);
     expect(origenPermitido('https://x.otro.example', 'agenteaml.example')).toBe(false);

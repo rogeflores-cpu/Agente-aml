@@ -159,7 +159,7 @@ Los tres puntos que quedaron abiertos por decisión de diseño se cerraron en
 ## Despliegue
 
 Producción en Render (`render.yaml`) con Supabase e Inngest, bajo `amlconsultingguatemala.com`:
-`api.`, `consola.`, `plataforma.` y `<organización>.clientes.`. Guía paso a paso en `docs/despliegue.md`.
+`api.`, `consola.`, `plataforma.` y `clientes.` (enlaces `clientes.…/<organización>/e/<token>`). Guía paso a paso en `docs/despliegue.md`.
 
 ## Siguiente
 

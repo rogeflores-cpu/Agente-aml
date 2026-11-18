@@ -136,10 +136,13 @@ que fusionar la rama de trabajo (`claude/exciting-newton-25fiy2`) en `main` con 
    aparece una línea `ATENCIÓN: faltan variables de entorno: …`. Sin esa línea, la configuración está
    completa.
 
-### 6. Dominios y DNS en Squarespace *(usted; le dicto los valores exactos)*
+### 6. Dominios y DNS en Wix *(usted; le dicto los valores exactos)*
 
-El dominio y su DNS están en Squarespace. Solo se agregan registros nuevos: el sitio web y el correo
-actuales de amlconsultingguatemala.com no se tocan. No hace falta ningún subdominio comodín.
+El dominio está registrado en Squarespace, pero su DNS lo administra **Wix** (servidores de nombres
+`ns10.wixdns.net` y `ns11.wixdns.net`). Los registros se agregan en Wix; los de la pantalla de DNS de
+Squarespace no tienen efecto. **No cambie los servidores de nombres** a Squarespace: el sitio web y el
+correo actuales dejarían de funcionar. Solo se agregan registros nuevos; no hace falta ningún
+subdominio comodín.
 
 **a. Dominios en Render.** En **Settings → Custom Domains** de cada servicio, agregue:
 
@@ -152,22 +155,23 @@ actuales de amlconsultingguatemala.com no se tocan. No hace falta ningún subdom
 
 Render muestra, para cada uno, la dirección a la que debe apuntar (termina en `.onrender.com`).
 
-**b. Registros en Squarespace.** En Squarespace: **Dominios → amlconsultingguatemala.com → DNS →
-Configuración de DNS → Registros personalizados → Agregar registro**. Por cada fila:
+**b. Registros en Wix.** En Wix: **Configuración → Dominios → amlconsultingguatemala.com → ⋮ (más
+acciones) → Administrar registros DNS**. En la sección **CNAME**, use **+ Agregar registro** por cada fila:
 
-| Host | Tipo | Datos |
-|---|---|---|
-| `api` | CNAME | la dirección `….onrender.com` de aml-api |
-| `consola` | CNAME | la de aml-consola |
-| `plataforma` | CNAME | la de aml-plataforma |
-| `clientes` | CNAME | la de aml-portal |
+| Nombre del host | Valor |
+|---|---|
+| `api` | la dirección `….onrender.com` de aml-api |
+| `consola` | la de aml-consola |
+| `plataforma` | la de aml-plataforma |
+| `clientes` | la de aml-portal |
 
-En *Host* va solo la palabra (`api`), nunca el dominio completo. Deje el TTL que proponga Squarespace.
+En *Nombre del host* va solo la palabra (`api`); Wix completa el dominio. Guarde al final.
 
-**c. Correo (Resend, paso 1 B).** Resend muestra sus registros con el host completo, por ejemplo
-`send.amlconsultingguatemala.com` o `resend._domainkey.amlconsultingguatemala.com`. En Squarespace se
-escribe solo la parte anterior al dominio: `send` o `resend._domainkey`. Si Resend propone un registro
-`_dmarc` y el dominio ya tiene uno, no agregue un segundo: avíseme y lo combinamos.
+**c. Correo (Resend, paso 1 B).** Resend muestra sus registros (TXT para SPF y DKIM, y un MX) con el
+host completo, por ejemplo `send.amlconsultingguatemala.com` o `resend._domainkey.amlconsultingguatemala.com`.
+En Wix se escribe solo la parte anterior al dominio: `send` o `resend._domainkey`, cada uno en su sección
+(TXT o MX). Antes de agregar un `_dmarc`, revise en la sección TXT si ya existe uno: si existe, no agregue
+otro y avíseme para combinarlos. Si Wix no deja guardar algún registro, avíseme con una captura.
 
 **d. Comprobar.** Los registros suelen activarse en minutos (hasta 48 horas). Render y Resend marcan
 cada dominio como verificado y Render emite el certificado HTTPS solo.

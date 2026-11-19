@@ -71,6 +71,9 @@ export function fuenteDemo(): Fuente {
     async sesion() { return sesion; },
     async iniciarSesion(correo) { sesion = { correo: correo || 'admin@plataforma.example' }; },
     async cerrarSesion() { sesion = null; },
+    enlace: () => null,
+    async fijarClave() {},
+    async recuperarClave() {},
 
     async organizaciones() { return copia(orgs.map((o) => o.detalle.estado)); },
     async organizacion(id) { return copia(buscar(id)); },

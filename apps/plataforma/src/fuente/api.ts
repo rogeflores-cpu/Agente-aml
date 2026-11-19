@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { leerEnlace } from './enlace';
 import type { DetalleOrganizacion, EstadoAlta, Fuente } from './tipos';
 
 /** Fuente real: sesión con Supabase y datos por la API de la plataforma (llave de servicio en el servidor). */
@@ -7,6 +8,9 @@ export function fuenteApi(): Fuente {
   const anon = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
   const api = (import.meta.env.VITE_API_URL as string) ?? '';
   if (!url || !anon) throw new Error('Configure VITE_SUPABASE_URL y VITE_SUPABASE_ANON_KEY');
+  // Leer el fragmento antes de crear el cliente: el cliente lo consume y lo borra
+  let enlace = leerEnlace(window.location.hash);
+  if (enlace?.tipo === 'error') window.history.replaceState(null, '', window.location.pathname);
   const sb = createClient(url, anon);
 
   const llamar = async (ruta: string, cuerpo?: unknown, metodo = cuerpo === undefined ? 'GET' : 'POST') => {
@@ -41,6 +45,16 @@ export function fuenteApi(): Fuente {
       if (error) throw new Error('Correo o contraseña incorrectos');
     },
     async cerrarSesion() { await sb.auth.signOut(); },
+    enlace: () => enlace,
+    async fijarClave(clave) {
+      const { error } = await sb.auth.updateUser({ password: clave });
+      if (error) throw new Error(/same|different/i.test(error.message) ? 'Use una contraseña distinta de la anterior.' : 'No se pudo guardar la contraseña. Pida un enlace nuevo.');
+      enlace = null;
+    },
+    async recuperarClave(correo) {
+      const { error } = await sb.auth.resetPasswordForEmail(correo.trim(), { redirectTo: window.location.origin });
+      if (error && /rate|limit/i.test(error.message)) throw new Error('Demasiados intentos. Espere unos minutos.');
+    },
 
     async organizaciones() {
       return ((await llamar('/api/plataforma/organizaciones')).organizaciones as any[]).map(estado);

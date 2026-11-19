@@ -4,6 +4,7 @@ import { Mensaje, Vacio } from './componentes/ui';
 import { ROLES_CUMPLIMIENTO, ROLES_OPERATIVOS, type Fuente, type Organizacion, type Rol, type Sesion } from './fuente/tipos';
 import { Bandeja } from './paginas/Bandeja';
 import { Expediente } from './paginas/Expediente';
+import { FijarClave } from './paginas/FijarClave';
 import { Ingreso } from './paginas/Ingreso';
 import { Operaciones } from './paginas/Operaciones';
 
@@ -21,6 +22,7 @@ export function App({ fuente }: { fuente: Fuente }) {
     return id && /^[0-9a-f-]{36}$/i.test(id) ? id : null;
   });
 
+  const [enlace, setEnlace] = useState(() => fuente.enlace());
   useEffect(() => { fuente.sesion().then(setSesion); }, [fuente]);
   useEffect(() => {
     if (!sesion) return;
@@ -29,7 +31,12 @@ export function App({ fuente }: { fuente: Fuente }) {
 
   if (sesion === undefined) return <Vacio>Cargando…</Vacio>;
   if (!sesion) {
-    return <Ingreso modoDemo={fuente.modoDemo} alIngresar={async (c, k, r) => { await fuente.iniciarSesion(c, k, r); setSesion(await fuente.sesion()); }} />;
+    return <Ingreso modoDemo={fuente.modoDemo} avisoInicial={enlace?.tipo === 'error' ? enlace.mensaje : null}
+      alRecuperar={(c) => fuente.recuperarClave(c)}
+      alIngresar={async (c, k, r) => { await fuente.iniciarSesion(c, k, r); setEnlace(null); setSesion(await fuente.sesion()); }} />;
+  }
+  if (enlace?.tipo === 'clave') {
+    return <FijarClave correo={sesion.correo} motivo={enlace.motivo} alGuardar={async (k) => { await fuente.fijarClave(k); setEnlace(null); }} />;
   }
 
   return (

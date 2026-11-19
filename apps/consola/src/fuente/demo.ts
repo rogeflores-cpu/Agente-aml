@@ -6,6 +6,7 @@ import {
 } from '@agente-aml/riesgo';
 import type { Aviso, Dato, DetalleExpediente, FilaOperacion, Fuente, Nivel, Rol } from './tipos';
 import { ROLES_CUMPLIMIENTO } from './tipos';
+import { buscarDemo } from './listas-demo';
 import { enmascararEstado, validarOperacion, validarPagoEfectivo } from './validacion';
 
 /**
@@ -225,6 +226,7 @@ export function fuenteDemo(): Fuente {
       sesion = { usuarioId: `${rol}-demo`, correo: correo || `${rol}@demo.example` };
     },
     async cerrarSesion() { sesion = null; },
+    async buscarListas(_org, q, tipo) { return buscarDemo(q, tipo); },
     enlace: () => null,
     async fijarClave() {},
     async recuperarClave() {},

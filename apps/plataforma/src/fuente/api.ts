@@ -83,6 +83,9 @@ export function fuenteApi(): Fuente {
         fuenteAltoRiesgo: l.fuente_alto_riesgo, fuenteMonitoreo: l.fuente_monitoreo, cargadaPor: l.cargada_por, cargadaEn: l.cargada_en,
       }));
     },
+    async buscarListas(q, tipo) {
+      return llamar(`/api/plataforma/buscar-listas?${new URLSearchParams({ q, ...(tipo ? { tipo } : {}) })}`);
+    },
     async cargarListaGafi(d) { await llamar('/api/plataforma/listas-gafi', d); },
     async designaciones1373() {
       return ((await llamar('/api/plataforma/designaciones-1373')).designaciones as any[]).map((d) => ({

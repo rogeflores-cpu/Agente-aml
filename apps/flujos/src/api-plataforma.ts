@@ -6,6 +6,7 @@ import { inngest } from './cliente-inngest.js';
 import { config } from './config.js';
 import { db, sinError } from './datos.js';
 import { esquemaListaGafi } from './reglas-consola.js';
+import { buscarListas, esquemaBusquedaListas } from './busqueda-listas.js';
 
 /**
  * API de administración de la plataforma: alta de organizaciones (sujetos
@@ -383,6 +384,13 @@ apiPlataforma.post('/listas-gafi', async (c) => {
   });
   if (error) return c.json({ error: error.message }, 409);
   return c.json({ ok: true }, 201);
+});
+
+// Búsqueda libre en la lista ONU y las designaciones 1373 cargadas
+apiPlataforma.get('/buscar-listas', async (c) => {
+  const p = esquemaBusquedaListas.safeParse({ q: c.req.query('q') ?? '', tipo: c.req.query('tipo') || undefined });
+  if (!p.success) return invalido(c, p.error);
+  return c.json(await buscarListas(p.data));
 });
 
 // ------------------------------------------------- designaciones S/RES/1373 (art. 43 c)

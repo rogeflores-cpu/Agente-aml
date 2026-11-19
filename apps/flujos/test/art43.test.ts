@@ -91,3 +91,18 @@ describe('corrección de datos por el oficial', () => {
     expect(valorCorregido({ ...base, tipo: 'lista' } as any, [{ nombre: 'Ana', porcentaje: 60 }])).toEqual({ valor: [{ nombre: 'Ana', porcentaje: 60 }] });
   });
 });
+
+describe('listas del GAFI', () => {
+  it('valida la versión de un pleno (códigos ISO, fecha no futura, URL oficiales)', async () => {
+    const { esquemaListaGafi } = await import('../src/reglas-consola.js');
+    const base = {
+      plenario: '2026-10-30', altoRiesgo: ['kp', 'IR', 'MM'], monitoreo: ['AO', 'VG'],
+      fuenteAltoRiesgo: 'https://www.fatf-gafi.org/a.html', fuenteMonitoreo: 'https://www.fatf-gafi.org/b.html',
+    };
+    const r = esquemaListaGafi.safeParse(base);
+    expect(r.success && r.data.altoRiesgo).toEqual(['KP', 'IR', 'MM']);
+    expect(esquemaListaGafi.safeParse({ ...base, plenario: '2999-01-01' }).success).toBe(false);
+    expect(esquemaListaGafi.safeParse({ ...base, monitoreo: ['VEN'] }).success).toBe(false);
+    expect(esquemaListaGafi.safeParse({ ...base, fuenteMonitoreo: 'no es url' }).success).toBe(false);
+  });
+});

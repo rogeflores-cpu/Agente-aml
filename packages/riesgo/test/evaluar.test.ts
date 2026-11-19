@@ -82,6 +82,21 @@ describe('motor de riesgo', () => {
     expect(evaluar(compradorSimple({ coincidenciaOnu: 'posible' }), base).propuesta).toBe('resolver_coincidencia');
   });
 
+  it('coincidencia OFAC confirmada: riesgo alto y diligencia intensificada, sin bloqueo del art. 43', () => {
+    const r = evaluar(compradorSimple({ coincidenciaOfac: 'confirmada' }), base);
+    const regla = r.reglas.find((x) => x.codigo === 'OFAC_CONFIRMADA');
+    expect(regla?.bloqueo).toBeUndefined();
+    expect(r.nivel).toBe('alto');
+    expect(r.medidas).toBe('intensificada');
+    expect(r.propuesta).toBe('listo_para_decision');
+  });
+
+  it('posible coincidencia OFAC: el oficial la dispone antes de decidir', () => {
+    expect(evaluar(compradorSimple({ coincidenciaOfac: 'posible' }), base).propuesta).toBe('resolver_coincidencia');
+    // La ONU confirmada sigue mandando sobre OFAC
+    expect(evaluar(compradorSimple({ coincidenciaOnu: 'confirmada', coincidenciaOfac: 'posible' }), base).propuesta).toBe('bloquear_y_comunicar_mp');
+  });
+
   it('comprador sin origen de fondos: propuesta de abstención (art. 22)', () => {
     const r = evaluar(compradorSimple({ origenFondosDeclarado: false }), base);
     expect(r.propuesta).toBe('proponer_abstencion');

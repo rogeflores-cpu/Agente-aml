@@ -9,7 +9,7 @@ import type { RegistroLista } from './onu.js';
  * referencia o documento. Es más permisiva que el cotejo (acepta un solo
  * apellido o parte del nombre) para no ocultar resultados.
  */
-export type FuenteLista = 'onu' | 'designacion_1373';
+export type FuenteLista = 'onu' | 'designacion_1373' | 'ofac';
 
 export interface ResultadoBusqueda {
   fuente: FuenteLista;

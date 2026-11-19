@@ -92,6 +92,13 @@ export function construirPerfil(
       ? 'posible'
       : 'ninguna';
   if (!onu.some((x) => x.fuente === 'onu')) advertencias.push('No hay cotejo con la lista de la ONU registrado para este expediente.');
+  // OFAC (no es lista del art. 43): eleva el riesgo, sin bloqueo
+  const ofac = verificaciones.filter((x) => x.fuente === 'ofac');
+  const coincidenciaOfac = ofac.some((x) => x.resultado === 'coincidencia_confirmada')
+    ? 'confirmada'
+    : ofac.some((x) => x.resultado === 'posible_coincidencia')
+      ? 'posible'
+      : 'ninguna';
 
   const revision = revisar({ ...entrada, hoy });
   if (!revision.completo) advertencias.push(`Hay ${revision.pendientes.length} pendiente(s) abiertos en el expediente.`);
@@ -137,6 +144,7 @@ export function construirPerfil(
     ddcCompleta: revision.completo && onu.length > 0,
     transaccionInusual: ajustes.transaccionInusual ?? false,
     coincidenciaOnu,
+    coincidenciaOfac,
   };
   return { perfil, advertencias };
 }

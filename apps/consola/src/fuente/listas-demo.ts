@@ -17,5 +17,5 @@ export function buscarDemo(q: string, tipo?: 'individual' | 'entidad'): Respuest
       const n = [r.nombre, ...r.alias].find((x) => limpio(x).includes(t));
       return n ? [{ ...r, fuente: 'onu' as const, motivo: 'nombre' as const, puntaje: 0.9, nombreCoincidente: n }] : [];
     });
-  return { listas: { onuRegistros: REGISTROS.length, onuGeneradaEl: null, onuCargadaEn: null, designaciones1373: 0 }, resultados };
+  return { listas: { onuRegistros: REGISTROS.length, onuGeneradaEl: null, onuCargadaEn: null, designaciones1373: 0, ofacRegistros: 0, ofacGeneradaEl: null, ofacCargadaEn: null }, resultados };
 }

@@ -259,6 +259,22 @@ export function evaluar(perfil: PerfilEvaluacion, config: ConfiguracionRiesgo): 
     });
   }
 
+  if (perfil.coincidenciaOfac === 'confirmada') {
+    reglas.push({
+      codigo: 'OFAC_CONFIRMADA',
+      descripcion: 'Coincidencia confirmada con la lista SDN de la OFAC (EE. UU.). Aplicar debida diligencia intensificada y evaluar si procede un reporte de transacción sospechosa. No activa el bloqueo del art. 43 ni la comunicación al Ministerio Público',
+      fundamento: 'Enfoque basado en riesgo y política de la organización; lista SDN de la OFAC (no es lista del art. 43)',
+      nivelMinimo: 'alto',
+      medidas: 'intensificada',
+    });
+  } else if (perfil.coincidenciaOfac === 'posible') {
+    reglas.push({
+      codigo: 'OFAC_POSIBLE',
+      descripcion: 'Posible coincidencia con la lista SDN de la OFAC pendiente de disposición por el oficial',
+      fundamento: 'Enfoque basado en riesgo y política de la organización; lista SDN de la OFAC (no es lista del art. 43)',
+    });
+  }
+
   let nivel = nivelPorPuntaje;
   for (const r of reglas) if (r.nivelMinimo) nivel = maxNivel(nivel, r.nivelMinimo);
   if (nivel !== nivelPorPuntaje) detalle.push(`nivel elevado a ${nivel} por reglas: ${reglas.filter((r) => r.nivelMinimo).map((r) => r.codigo).join(', ')}`);
@@ -275,7 +291,7 @@ export function evaluar(perfil: PerfilEvaluacion, config: ConfiguracionRiesgo): 
   // --------------------------------------------------------------- propuesta
   let propuesta: Propuesta = 'listo_para_decision';
   if (perfil.coincidenciaOnu === 'confirmada') propuesta = 'bloquear_y_comunicar_mp';
-  else if (perfil.coincidenciaOnu === 'posible') propuesta = 'resolver_coincidencia';
+  else if (perfil.coincidenciaOnu === 'posible' || perfil.coincidenciaOfac === 'posible') propuesta = 'resolver_coincidencia';
   else if (ddcIncompleta) propuesta = 'proponer_abstencion';
 
   return {

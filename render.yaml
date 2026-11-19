@@ -44,6 +44,8 @@ services:
         value: "7"
       - key: ONU_LISTA_URL
         value: https://scsanctions.un.org/resources/xml/en/consolidated.xml
+      - key: OFAC_LISTA_URL
+        value: https://sanctionslistservice.ofac.treas.gov/api/PublicationPreview/exports/SDN.XML
       - key: INNGEST_EVENT_KEY
         sync: false
       - key: INNGEST_SIGNING_KEY

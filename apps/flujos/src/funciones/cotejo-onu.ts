@@ -1,15 +1,16 @@
 import { claveNombre, personasIdentificadas, type Dato } from '@agente-aml/agente';
-import { cotejar, parsearListaOnu, type Consulta, type RegistroLista } from '@agente-aml/listas';
+import { cotejar, parsearListaOfac, parsearListaOnu, type Consulta, type ListaCargada, type RegistroLista } from '@agente-aml/listas';
 import { inngest } from '../cliente-inngest.js';
 import { config } from '../config.js';
 import { db, notificar, sinError } from '../datos.js';
 import { cargarDesignacionesVigentes } from '../designaciones.js';
-import { cargarListaVigente, planificarActualizacion } from '../lista-onu.js';
+import { cargarListaVigente, planificarActualizacion, TABLAS_OFAC, TABLAS_ONU, type TablasLista } from '../lista-onu.js';
 
-type Fuente = 'onu' | 'designacion_1373';
+type Fuente = 'onu' | 'designacion_1373' | 'ofac';
 const NOMBRE_FUENTE: Record<Fuente, string> = {
   onu: 'la lista de la ONU',
   designacion_1373: 'las designaciones de la S/RES/1373',
+  ofac: 'la lista SDN de la OFAC',
 };
 
 
@@ -42,6 +43,16 @@ async function registrarResultado(
     coincidencias,
   }).select('id').single());
   if (!coincidencias.length) return;
+
+  // OFAC no es lista del art. 43: la base abre la alerta OFAC_POSIBLE (sin
+  // vencimiento) y aquí solo se avisa a cumplimiento. Sin plazo ni escalamiento.
+  if (fuente === 'ofac') {
+    await notificar(organizacionId, 'cumplimiento', `Posible coincidencia con ${NOMBRE_FUENTE.ofac}`,
+      `${consulta.nombre}: ${coincidencias.length} posible(s) coincidencia(s). Dispóngala antes de decidir; si se confirma, `
+      + 'aplique debida diligencia intensificada. No hay bloqueo del art. 43 ni comunicación al Ministerio Público.',
+      { expedienteId, prioridad: 'alta' });
+    return;
+  }
 
   const verificacionId = (verificacion as { id: string }).id;
   // La alerta ONU_POSIBLE la abre la base al registrar la verificación
@@ -98,7 +109,15 @@ export const cotejoInicial = inngest.createFunction(
       await registrarResultado(d.organizacionId, d.expedienteId, d.personaRelacionadaId ?? null, consulta, lista.version, r, 'designacion_1373');
       return { coincidencias: r.length };
     });
-    return { onu, designaciones };
+    const ofac = await step.run('cotejar-ofac', async () => {
+      const lista = await cargarListaVigente(TABLAS_OFAC);
+      if (!lista.sha256) return { sinLista: true };
+      if (await yaCotejado('ofac', lista.sha256)) return { duplicado: true };
+      const r = cotejar(consulta, lista.registros);
+      await registrarResultado(d.organizacionId, d.expedienteId, d.personaRelacionadaId ?? null, consulta, lista.sha256, r, 'ofac');
+      return { coincidencias: r.length };
+    });
+    return { onu, designaciones, ofac };
   },
 );
 
@@ -146,11 +165,89 @@ async function cargarCartera(): Promise<Persona[]> {
   return salida;
 }
 
+interface ListaDescargable {
+  fuente: 'onu' | 'ofac';
+  nombre: string;
+  tablas: TablasLista;
+  url: () => string;
+  parsear: (xml: string) => ListaCargada;
+}
+
+const LISTA_ONU: ListaDescargable = {
+  fuente: 'onu', nombre: 'la lista ONU', tablas: TABLAS_ONU, url: () => config.onuListaUrl, parsear: parsearListaOnu,
+};
+const LISTA_OFAC: ListaDescargable = {
+  fuente: 'ofac', nombre: 'la lista SDN de la OFAC', tablas: TABLAS_OFAC, url: () => config.ofacListaUrl, parsear: parsearListaOfac,
+};
+
 /**
- * Control permanente (art. 43): descarga diaria de la lista. Si cambió, carga
- * los registros y SOLO AL FINAL registra la versión, para que un fallo a medias
- * se vuelva a intentar completo (A5); luego coteja la cartera activa contra
- * los registros nuevos o modificados.
+ * Descarga la lista; si cambió, carga los registros y SOLO AL FINAL registra
+ * la versión, para que un fallo a medias se vuelva a intentar completo (A5).
+ * Devuelve las referencias contra las que hay que recotejar la cartera.
+ */
+async function descargarYGuardar(l: ListaDescargable): Promise<{ sha256: string; referencias: string[] } | null> {
+  const r = await fetch(l.url());
+  if (!r.ok) throw new Error(`No se pudo descargar ${l.nombre}: ${r.status}`);
+  const nueva = l.parsear(await r.text());
+  const anterior = await cargarListaVigente(l.tablas);
+  const parcial = await sinError(
+    db().from(l.tablas.registros).select('referencia').eq('version_sha256', nueva.sha256).limit(1),
+  );
+  const plan = planificarActualizacion(anterior, nueva, anterior.sha256 !== nueva.sha256 && ((parcial as any[]) ?? []).length > 0);
+  if (plan.sinCambios) return null;
+  // 1. Registros (la versión nueva debe existir antes por la llave foránea; se registra
+  //    marcada como pendiente con cargada_en en el pasado y se actualiza al final).
+  await sinError(db().from(l.tablas.versiones).upsert({
+    sha256: nueva.sha256, generada_el: nueva.generadaEl ?? null, registros: nueva.registros.length,
+    cargada_en: new Date(0).toISOString(),
+  }, { onConflict: 'sha256' }));
+  for (let i = 0; i < nueva.registros.length; i += 500) {
+    await sinError(db().from(l.tablas.registros).upsert(
+      nueva.registros.slice(i, i + 500).map((reg) => ({
+        referencia: reg.referencia, tipo: reg.tipo, datos: reg, version_sha256: nueva.sha256,
+        actualizado_en: new Date().toISOString(),
+      })),
+    ));
+  }
+  for (let i = 0; i < plan.retirados.length; i += 500) {
+    await sinError(db().from(l.tablas.registros).delete().in('referencia', plan.retirados.slice(i, i + 500)));
+  }
+  // 2. Solo ahora la versión pasa a ser la vigente (la más reciente por cargada_en)
+  await sinError(db().from(l.tablas.versiones).update({ cargada_en: new Date().toISOString() }).eq('sha256', nueva.sha256));
+  return { sha256: nueva.sha256, referencias: plan.revisar.map((x) => x.referencia) };
+}
+
+/** Coteja la cartera activa contra los registros nuevos o modificados de la lista. */
+async function recotejarCartera(step: any, l: ListaDescargable, cambios: { sha256: string; referencias: string[] }) {
+  const cartera: Persona[] = await step.run('cargar-cartera', cargarCartera);
+  let encontradas = 0;
+  for (let i = 0; i < cartera.length; i += 200) {
+    encontradas += await step.run(`recotejar-${i}`, async () => {
+      const revisar: RegistroLista[] = [];
+      for (let j = 0; j < cambios.referencias.length; j += 500) {
+        const lote = (await sinError(
+          db().from(l.tablas.registros).select('datos').in('referencia', cambios.referencias.slice(j, j + 500)),
+        )) as { datos: RegistroLista }[];
+        revisar.push(...lote.map((x) => x.datos));
+      }
+      let n = 0;
+      for (const c of cartera.slice(i, i + 200)) {
+        const consulta: Consulta = { nombre: c.nombre, tipo: c.tipo, fechaNacimiento: c.fechaNacimiento };
+        const r = cotejar(consulta, revisar);
+        if (r.length) {
+          await registrarResultado(c.organizacionId, c.expedienteId, null, consulta, cambios.sha256, r, l.fuente);
+          n++;
+        }
+      }
+      return n;
+    });
+  }
+  return { revisados: cambios.referencias.length, cartera: cartera.length, encontradas };
+}
+
+/**
+ * Control permanente (art. 43): descarga diaria de la lista de la ONU y
+ * recotejo de la cartera activa contra los registros nuevos o modificados.
  */
 export const actualizarListaYRecotejar = inngest.createFunction(
   {
@@ -165,64 +262,33 @@ export const actualizarListaYRecotejar = inngest.createFunction(
   },
   { cron: 'TZ=America/Guatemala 0 5 * * *' },
   async ({ step }) => {
-    const cambios = await step.run('descargar-y-guardar', async () => {
-      const r = await fetch(config.onuListaUrl);
-      if (!r.ok) throw new Error(`No se pudo descargar la lista ONU: ${r.status}`);
-      const nueva = parsearListaOnu(await r.text());
-      const anterior = await cargarListaVigente();
-      const parcial = await sinError(
-        db().from('lista_onu_registros').select('referencia').eq('version_sha256', nueva.sha256).limit(1),
-      );
-      const plan = planificarActualizacion(anterior, nueva, anterior.sha256 !== nueva.sha256 && ((parcial as any[]) ?? []).length > 0);
-      if (plan.sinCambios) return null;
-      // 1. Registros (la versión nueva debe existir antes por la llave foránea; se registra
-      //    marcada como pendiente con cargada_en en el pasado y se actualiza al final).
-      await sinError(db().from('lista_onu_versiones').upsert({
-        sha256: nueva.sha256, generada_el: nueva.generadaEl ?? null, registros: nueva.registros.length,
-        cargada_en: new Date(0).toISOString(),
-      }, { onConflict: 'sha256' }));
-      for (let i = 0; i < nueva.registros.length; i += 500) {
-        await sinError(db().from('lista_onu_registros').upsert(
-          nueva.registros.slice(i, i + 500).map((reg) => ({
-            referencia: reg.referencia, tipo: reg.tipo, datos: reg, version_sha256: nueva.sha256,
-            actualizado_en: new Date().toISOString(),
-          })),
-        ));
-      }
-      if (plan.retirados.length) {
-        await sinError(db().from('lista_onu_registros').delete().in('referencia', plan.retirados));
-      }
-      // 2. Solo ahora la versión pasa a ser la vigente (la más reciente por cargada_en)
-      await sinError(db().from('lista_onu_versiones').update({ cargada_en: new Date().toISOString() }).eq('sha256', nueva.sha256));
-      return { sha256: nueva.sha256, referencias: plan.revisar.map((x) => x.referencia) };
-    });
+    const cambios = await step.run('descargar-y-guardar', () => descargarYGuardar(LISTA_ONU));
     if (!cambios || !cambios.referencias.length) return { cambios: 0 };
+    return recotejarCartera(step, LISTA_ONU, cambios);
+  },
+);
 
-    const cartera = await step.run('cargar-cartera', cargarCartera);
-
-    let encontradas = 0;
-    for (let i = 0; i < cartera.length; i += 200) {
-      encontradas += await step.run(`recotejar-${i}`, async () => {
-        const revisar: RegistroLista[] = [];
-        for (let j = 0; j < cambios.referencias.length; j += 500) {
-          const lote = (await sinError(
-            db().from('lista_onu_registros').select('datos').in('referencia', cambios.referencias.slice(j, j + 500)),
-          )) as { datos: RegistroLista }[];
-          revisar.push(...lote.map((x) => x.datos));
-        }
-        let n = 0;
-        for (const c of cartera.slice(i, i + 200)) {
-          const consulta: Consulta = { nombre: c.nombre, tipo: c.tipo, fechaNacimiento: c.fechaNacimiento };
-          const r = cotejar(consulta, revisar);
-          if (r.length) {
-            await registrarResultado(c.organizacionId, c.expedienteId, null, consulta, cambios.sha256, r);
-            n++;
-          }
-        }
-        return n;
-      });
-    }
-    return { revisados: cambios.referencias.length, cartera: cartera.length, encontradas };
+/**
+ * Lista SDN de la OFAC (criterio del 19-nov-2026, opción A): descarga diaria y
+ * recotejo igual que la ONU, pero una coincidencia solo genera alerta y
+ * debida diligencia intensificada (sin bloqueo del art. 43).
+ */
+export const actualizarOfacYRecotejar = inngest.createFunction(
+  {
+    id: 'lista-ofac-diaria',
+    concurrency: { limit: 1 },
+    onFailure: async ({ error }) => {
+      await sinError(db().from('avisos_plataforma').insert({
+        asunto: 'Falló la actualización diaria de la lista OFAC',
+        cuerpo: `La lista SDN de la OFAC no se actualizó: ${error.message}. Revise el flujo lista-ofac-diaria.`,
+      }));
+    },
+  },
+  { cron: 'TZ=America/Guatemala 30 5 * * *' },
+  async ({ step }) => {
+    const cambios = await step.run('descargar-y-guardar', () => descargarYGuardar(LISTA_OFAC));
+    if (!cambios || !cambios.referencias.length) return { cambios: 0 };
+    return recotejarCartera(step, LISTA_OFAC, cambios);
   },
 );
 

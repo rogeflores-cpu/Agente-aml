@@ -14,6 +14,8 @@ ENLACE_VIGENCIA_DIAS=7
 
 # XML de la lista consolidada del Consejo de Seguridad de la ONU
 ONU_LISTA_URL=https://scsanctions.un.org/resources/xml/en/consolidated.xml
+# Lista SDN de la OFAC (EE. UU.). Opcional: si falta, se usa esta misma dirección.
+OFAC_LISTA_URL=https://sanctionslistservice.ofac.treas.gov/api/PublicationPreview/exports/SDN.XML
 
 # Inngest (producción). En local: npx inngest-cli dev
 INNGEST_EVENT_KEY=

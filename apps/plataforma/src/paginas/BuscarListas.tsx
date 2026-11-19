@@ -3,6 +3,11 @@ import { Boton, Insignia, Mensaje, Tarjeta, Vacio } from '../componentes/ui';
 import type { RespuestaBusquedaListas, ResultadoLista } from '../fuente/tipos';
 
 const MOTIVO: Record<ResultadoLista['motivo'], string> = { referencia: 'Por referencia', documento: 'Por documento', nombre: 'Por nombre o alias' };
+const FUENTE: Record<ResultadoLista['fuente'], { texto: string; clase: string }> = {
+  onu: { texto: 'ONU', clase: 'bg-marca-claro text-marca' },
+  designacion_1373: { texto: 'S/RES/1373', clase: 'bg-alto-claro text-alto' },
+  ofac: { texto: 'OFAC (EE. UU.)', clase: 'bg-medio-claro text-medio' },
+};
 const fechaCorta = (iso: string | null) =>
   iso ? new Date(iso).toLocaleString('es-GT', { timeZone: 'America/Guatemala', dateStyle: 'medium', timeStyle: 'short' }) : '—';
 
@@ -25,7 +30,7 @@ export function BuscarListas({ buscar }: { buscar: (q: string, tipo?: 'individua
       <div>
         <h1 className="text-2xl font-semibold">Buscar en las listas</h1>
         <p className="mt-1 text-sm text-tinta-suave">
-          Lista consolidada del Consejo de Seguridad de la ONU y designaciones S/RES/1373 cargadas (art. 43). Busque por nombre, alias,
+          Lista consolidada del Consejo de Seguridad de la ONU y designaciones S/RES/1373 cargadas (art. 43), y lista SDN de la OFAC (EE. UU.). Busque por nombre, alias,
           parte del nombre, número de referencia (p. ej. QDi.123) o número de documento. Es solo una consulta: no registra una verificación.
         </p>
       </div>
@@ -57,6 +62,7 @@ export function BuscarListas({ buscar }: { buscar: (q: string, tipo?: 'individua
           <p className="text-xs text-tinta-suave">
             Lista ONU: {r.listas.onuRegistros.toLocaleString('es-GT')} registros · generada por la ONU el {fechaCorta(r.listas.onuGeneradaEl)} · cargada el {fechaCorta(r.listas.onuCargadaEn)}
             {' · '}Designaciones 1373 vigentes: {r.listas.designaciones1373}
+            {' · '}OFAC SDN: {r.listas.ofacRegistros ? `${r.listas.ofacRegistros.toLocaleString('es-GT')} registros, publicada el ${r.listas.ofacGeneradaEl ?? '—'}` : 'aún no cargada'}
           </p>
           <Tarjeta titulo={`Resultados para «${buscado}»`} accion={<Insignia clase="bg-papel text-tinta-suave">{r.resultados.length}</Insignia>}>
             {!r.resultados.length ? (
@@ -67,7 +73,7 @@ export function BuscarListas({ buscar }: { buscar: (q: string, tipo?: 'individua
                   <li key={`${x.fuente}-${x.referencia}`} className="space-y-1 py-3 text-sm">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-semibold">{x.nombre}</span>
-                      <Insignia clase={x.fuente === 'onu' ? 'bg-marca-claro text-marca' : 'bg-alto-claro text-alto'}>{x.fuente === 'onu' ? 'ONU' : 'S/RES/1373'}</Insignia>
+                      <Insignia clase={FUENTE[x.fuente].clase}>{FUENTE[x.fuente].texto}</Insignia>
                       <Insignia clase="bg-papel text-tinta-suave">{x.tipo === 'individual' ? 'Persona' : 'Entidad'}</Insignia>
                       <span className="text-xs text-tinta-suave">{MOTIVO[x.motivo]} · similitud {Math.round(x.puntaje * 100)} %</span>
                     </div>
@@ -89,7 +95,7 @@ export function BuscarListas({ buscar }: { buscar: (q: string, tipo?: 'individua
           </Tarjeta>
           <p className="text-xs text-tinta-suave">
             Un resultado aquí no confirma una coincidencia: compare fecha de nacimiento, nacionalidad y documentos. Si corresponde a un cliente,
-            la disposición se hace en el expediente (coincidencia confirmada, homónimo o chequeo verificado).
+            la disposición se hace en el expediente. Una coincidencia con OFAC no activa el bloqueo del art. 43: exige debida diligencia intensificada.
           </p>
         </>
       )}

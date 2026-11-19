@@ -27,6 +27,7 @@ persona autorizada (oficial de cumplimiento o quien ejerza la función).
 | `expediente-creado` | Alta de operación | Genera el enlace con la marca de la organización, envía la plantilla de bienvenida y hasta 3 recordatorios cada 2 días. |
 | `cotejo-onu-inicial` | Cliente o persona relacionada identificada | Coteja contra la lista ONU vigente y, si hay alguna registrada, contra las designaciones S/RES/1373; avisa solo a cumplimiento. |
 | `designacion-1373-registrada` | La plataforma registra una designación | Coteja toda la cartera activa contra la designación nueva (control permanente, art. 43). |
+| `lista-ofac-diaria` | Diario, 5:30 Guatemala | Descarga la lista SDN de la OFAC y recoteja la cartera igual que la ONU. Una coincidencia abre alerta y, confirmada, riesgo alto con diligencia intensificada; sin bloqueo del art. 43. |
 | `lista-onu-diaria` | Diario, 5:00 Guatemala | Descarga la lista; si cambió, guarda la versión y recoteja la cartera activa solo contra altas y cambios (control permanente, art. 43). |
 | `plazo-onu-24h` | Coincidencia confirmada | Abre alerta con vencimiento a 24 horas, escala a las 20 horas y deja constancia si vence. |
 | `verificacion-diferida` | Aprobación con verificación diferida | Aviso 15 días antes y alerta al vencer los 3 meses (art. 22). |
@@ -101,6 +102,7 @@ Un solo receptor (`POST /webhooks/whatsapp`) valida la firma y enruta por `phone
 ## Listas ONU y GAFI
 
 - **ONU:** el XML consolidado es público; `lista-onu-diaria` lo descarga y recoteja la cartera.
+- **OFAC (SDN):** XML público del Tesoro de EE. UU. (`OFAC_LISTA_URL`); `lista-ofac-diaria` lo descarga y recoteja la cartera. No es lista del art. 43.
 - **GAFI:** no tiene descarga automática. Después de cada pleno (febrero, junio, octubre) se
   registra una versión en `aml.listas_gafi` con las dos listas y sus URL oficiales; las versiones
   no se modifican. El motor de riesgo usa la vigente con `aplicarListaGafi()`.

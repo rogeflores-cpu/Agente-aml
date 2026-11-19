@@ -1,20 +1,25 @@
 # Despliegue en producción — Agente AML
 
 Dueño del producto: **AML Consulting Guatemala** · dominio `amlconsultingguatemala.com`.
-Última actualización: 17-nov-2026.
+Última actualización: 19-nov-2026.
 
 ## Mapa
 
 | Dirección | Qué es | Dónde corre |
 |---|---|---|
-| `https://api.amlconsultingguatemala.com` | Servidor (`apps/flujos`): API, webhook de WhatsApp, flujos de Inngest | Render, servicio `aml-api` (siempre encendido) |
+| `https://aml-api-da6s.onrender.com` | Servidor (`apps/flujos`): API, webhook de WhatsApp, flujos de Inngest | Render, servicio `aml-api` (siempre encendido) |
 | `https://consola.amlconsultingguatemala.com` | Consola de cumplimiento y vista operativa | Render, sitio estático `aml-consola` |
-| `https://plataforma.amlconsultingguatemala.com` | Administración de la plataforma | Render, sitio estático `aml-plataforma` |
+| `https://aml-plataforma.onrender.com` | Administración de la plataforma | Render, sitio estático `aml-plataforma` |
 | `https://clientes.amlconsultingguatemala.com/<organización>/…` | Portal del cliente con la marca de cada inmobiliaria | Render, sitio estático `aml-portal` |
 | Supabase (`<ref>.supabase.co`) | Base de datos, usuarios, documentos y Vault | Supabase, región East US (N. Virginia) |
 | Inngest Cloud | Flujos programados y con reintentos | Inngest |
 
 Todo queda en la región este de EE. UU., la más cercana a Guatemala.
+
+**Dominios propios (plan gratuito de Render: 2 por cuenta).** Solo `consola` y `clientes` llevan
+dominio propio, porque son los que ven el oficial y los clientes. La API y la plataforma usan su
+dirección `.onrender.com`. Si más adelante se amplía el plan, se agregan `api` y `plataforma` y se
+cambian `VITE_API_URL` y `PLATAFORMA_ORIGEN` en `render.yaml` y las *Redirect URLs* de Supabase.
 
 **Por qué Render y no Netlify:** el
 servidor necesita estar encendido siempre para recibir los mensajes de WhatsApp. Además, el plan
@@ -59,7 +64,7 @@ directamente en cada servicio).
 4. **Settings → API → Exposed schemas**: agregue `aml`.
 5. **Authentication → Sign In / Providers**: desactive *Allow new users to sign up* (los usuarios solo
    entran por invitación). **URL Configuration**: *Site URL* = `https://consola.amlconsultingguatemala.com`;
-   en *Redirect URLs* agregue también `https://plataforma.amlconsultingguatemala.com`.
+   en *Redirect URLs* agregue también `https://aml-plataforma.onrender.com`.
 6. **Authentication → Emails → SMTP**: use el mismo remitente del paso 1 B (Resend:
    servidor `smtp.resend.com`, puerto 465, usuario `resend`, contraseña = la API key). El correo de
    prueba de Supabase tiene un límite muy bajo por hora y las invitaciones dejarían de llegar.
@@ -99,7 +104,7 @@ teléfono; si no, correo; si tampoco hay correo, el ejecutivo recibe el enlace p
 1. En inngest.com, cree la cuenta y el entorno **Production**.
 2. Copie la **Event Key** y la **Signing Key**.
 3. Después del paso 5, en *Apps → Sync new app*, indique
-   `https://api.amlconsultingguatemala.com/api/inngest`. Deben aparecer **11 funciones** (bienvenida,
+   `https://aml-api-da6s.onrender.com/api/inngest`. Deben aparecer **11 funciones** (bienvenida,
    cotejos ONU y 1373, lista ONU diaria, plazos del art. 43, verificación diferida, actualización
    periódica, WhatsApp entrante, revisión GAFI y ancla de la bitácora).
 4. Ejecute una vez a mano la función `lista-onu-diaria` (*Invoke*) para cargar la lista de la ONU antes
@@ -148,9 +153,7 @@ subdominio comodín.
 
 | Servicio | Dominio |
 |---|---|
-| aml-api | `api.amlconsultingguatemala.com` |
 | aml-consola | `consola.amlconsultingguatemala.com` |
-| aml-plataforma | `plataforma.amlconsultingguatemala.com` |
 | aml-portal | `clientes.amlconsultingguatemala.com` |
 
 Render muestra, para cada uno, la dirección a la que debe apuntar (termina en `.onrender.com`).
@@ -160,9 +163,7 @@ acciones) → Administrar registros DNS**. En la sección **CNAME**, use **+ Agr
 
 | Nombre del host | Valor |
 |---|---|
-| `api` | la dirección `….onrender.com` de aml-api |
 | `consola` | la de aml-consola |
-| `plataforma` | la de aml-plataforma |
 | `clientes` | la de aml-portal |
 
 En *Nombre del host* va solo la palabra (`api`); Wix completa el dominio. Guarde al final.
@@ -186,7 +187,7 @@ según el enlace.
 1. En Supabase, **Authentication → Users → Invite user**, con un correo que esté en
    `PLATAFORMA_ADMINS`.
 2. Acepte la invitación desde el correo, fije la contraseña y entre a
-   `https://plataforma.amlconsultingguatemala.com`.
+   `https://aml-plataforma.onrender.com`.
 3. En **Listas GAFI**, cargue la versión del último pleno (octubre de 2026). Sin ella el motor de riesgo
    no evalúa.
 4. **Designaciones 1373**: si hay alguna comunicada, regístrela. Mientras no haya ninguna, solo se
@@ -196,7 +197,7 @@ según el enlace.
 
 1. En developers.facebook.com, cree una app de tipo **Negocio** vinculada al portafolio verificado de
    AML Consulting Guatemala y agregue el producto **WhatsApp**.
-2. **WhatsApp → Configuración → Webhook**: URL `https://api.amlconsultingguatemala.com/webhooks/whatsapp`,
+2. **WhatsApp → Configuración → Webhook**: URL `https://aml-api-da6s.onrender.com/webhooks/whatsapp`,
    token de verificación = `META_VERIFY_TOKEN` de Render; suscriba el campo `messages`.
 3. Copie el **App ID** y el **App Secret** a Render (`META_APP_ID`, `META_APP_SECRET`).
 4. Solicite el alta como **proveedor tecnológico** para que cada inmobiliaria conecte su número desde la
@@ -220,7 +221,7 @@ según el enlace.
 
 ## Verificación final
 
-- [ ] `https://api.amlconsultingguatemala.com/salud` responde `{"ok":true}`.
+- [ ] `https://aml-api-da6s.onrender.com/salud` responde `{"ok":true}`.
 - [ ] Los registros de `aml-api` no muestran la línea `ATENCIÓN: faltan variables de entorno`.
 - [ ] Inngest muestra las 11 funciones y la lista ONU quedó cargada.
 - [ ] Supabase: registro público desactivado, bucket `expedientes` privado, esquema `aml` expuesto.

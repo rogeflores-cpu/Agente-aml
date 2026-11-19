@@ -61,7 +61,7 @@ services:
       - key: CONSOLA_ORIGEN
         value: https://consola.amlconsultingguatemala.com
       - key: PLATAFORMA_ORIGEN
-        value: https://plataforma.amlconsultingguatemala.com
+        value: https://aml-plataforma.onrender.com
       - key: PLATAFORMA_ADMINS
         sync: false
       - key: ANCLA_BITACORA_URL
@@ -92,7 +92,7 @@ services:
       - key: VITE_SUPABASE_ANON_KEY
         sync: false
       - key: VITE_API_URL
-        value: https://api.amlconsultingguatemala.com
+        value: https://aml-api-da6s.onrender.com
 
   - type: web
     name: aml-plataforma
@@ -119,7 +119,7 @@ services:
       - key: VITE_SUPABASE_ANON_KEY
         sync: false
       - key: VITE_API_URL
-        value: https://api.amlconsultingguatemala.com
+        value: https://aml-api-da6s.onrender.com
 
   - type: web
     name: aml-portal
@@ -146,4 +146,4 @@ services:
         value: no-store
     envVars:
       - key: VITE_API_URL
-        value: https://api.amlconsultingguatemala.com
+        value: https://aml-api-da6s.onrender.com

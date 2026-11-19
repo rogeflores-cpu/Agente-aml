@@ -13,6 +13,10 @@ import type { ListaCargada, RegistroLista } from './onu.js';
  * Formato: el XML clásico de la SDN (sdnList > sdnEntry). Se descarga de la
  * dirección configurada en OFAC_LISTA_URL. Buques y aeronaves no se cargan:
  * el cotejo es de personas y entidades.
+ *
+ * El archivo es grande: se lee POR PARTES (un sdnEntry a la vez) para no
+ * cargar todo el documento en memoria. Con el documento completo, el
+ * servidor de 512 MB se quedaba sin memoria.
  */
 
 const comoArreglo = <T>(x: T | T[] | undefined | null): T[] => (x == null ? [] : Array.isArray(x) ? x : [x]);
@@ -37,40 +41,93 @@ export function fechaOfac(s: string): string | null {
 const nombreCompleto = (x: { firstName?: unknown; lastName?: unknown }) =>
   [texto(x.firstName), texto(x.lastName)].filter(Boolean).join(' ');
 
-export function parsearListaOfac(xml: string): ListaCargada {
-  const parser = new XMLParser({ ignoreAttributes: true, removeNSPrefix: true, parseTagValue: false, trimValues: true });
-  const raiz = parser.parse(xml)?.sdnList;
-  if (!raiz) throw new Error('El archivo de OFAC no tiene el formato esperado (sdnList)');
-
-  const registros: RegistroLista[] = [];
-  for (const e of comoArreglo<Record<string, any>>(raiz.sdnEntry)) {
-    const tipoOfac = texto(e.sdnType).toLowerCase();
-    if (tipoOfac !== 'individual' && tipoOfac !== 'entity') continue;
-    const tipo = tipoOfac === 'individual' ? 'individual' : 'entidad';
-    const nombre = tipo === 'individual' ? nombreCompleto(e) : texto(e.lastName);
-    if (!texto(e.uid) || !nombre) continue;
-    const programas = comoArreglo(e.programList?.program).map(texto).filter(Boolean);
-    registros.push({
-      referencia: `OFAC-${texto(e.uid)}`,
-      lista: `OFAC SDN${programas.length ? ` · ${programas.join(', ')}` : ''}`,
-      tipo,
-      nombre,
-      alias: [...new Set(comoArreglo<Record<string, unknown>>(e.akaList?.aka).map(nombreCompleto).filter((a) => a && a !== nombre))],
-      fechasNacimiento: [...new Set(comoArreglo<Record<string, unknown>>(e.dateOfBirthList?.dateOfBirthItem)
-        .map((d) => fechaOfac(texto(d.dateOfBirth))).filter((d): d is string => !!d))],
-      nacionalidades: [...new Set([
-        ...comoArreglo<Record<string, unknown>>(e.nationalityList?.nationality),
-        ...comoArreglo<Record<string, unknown>>(e.citizenshipList?.citizenship),
-      ].map((n) => texto(n.country)).filter(Boolean))],
-      documentos: [...new Set(comoArreglo<Record<string, unknown>>(e.idList?.id).map((d) => texto(d.idNumber)).filter(Boolean))],
-    });
-  }
-  // Un archivo vacío o con otro formato no debe reemplazar la lista vigente.
-  if (!registros.length) throw new Error('El archivo de OFAC no trae registros de personas ni entidades');
-
+/** Convierte un sdnEntry ya leído; null si es buque, aeronave o no trae nombre. */
+function registroOfac(e: Record<string, any>): RegistroLista | null {
+  const tipoOfac = texto(e.sdnType).toLowerCase();
+  if (tipoOfac !== 'individual' && tipoOfac !== 'entity') return null;
+  const tipo = tipoOfac === 'individual' ? 'individual' : 'entidad';
+  const nombre = tipo === 'individual' ? nombreCompleto(e) : texto(e.lastName);
+  if (!texto(e.uid) || !nombre) return null;
+  const programas = comoArreglo(e.programList?.program).map(texto).filter(Boolean);
   return {
-    generadaEl: texto(raiz.publshInformation?.Publish_Date) || undefined,
-    sha256: createHash('sha256').update(xml).digest('hex'),
-    registros,
+    referencia: `OFAC-${texto(e.uid)}`,
+    lista: `OFAC SDN${programas.length ? ` · ${programas.join(', ')}` : ''}`,
+    tipo,
+    nombre,
+    alias: [...new Set(comoArreglo<Record<string, unknown>>(e.akaList?.aka).map(nombreCompleto).filter((a) => a && a !== nombre))],
+    fechasNacimiento: [...new Set(comoArreglo<Record<string, unknown>>(e.dateOfBirthList?.dateOfBirthItem)
+      .map((d) => fechaOfac(texto(d.dateOfBirth))).filter((d): d is string => !!d))],
+    nacionalidades: [...new Set([
+      ...comoArreglo<Record<string, unknown>>(e.nationalityList?.nationality),
+      ...comoArreglo<Record<string, unknown>>(e.citizenshipList?.citizenship),
+    ].map((n) => texto(n.country)).filter(Boolean))],
+    documentos: [...new Set(comoArreglo<Record<string, unknown>>(e.idList?.id).map((d) => texto(d.idNumber)).filter(Boolean))],
   };
+}
+
+const CIERRE = /<\/(?:[\w-]+:)?sdnEntry\s*>/g;
+const APERTURA = /<(?:[\w-]+:)?sdnEntry[\s>]/g;
+
+/**
+ * Lector por partes: se le entregan trozos de texto del XML en orden y va
+ * convirtiendo cada sdnEntry completo. Calcula el SHA-256 del texto completo.
+ */
+export class LectorOfac {
+  private pendiente = '';
+  private hash = createHash('sha256');
+  private parser = new XMLParser({ ignoreAttributes: true, removeNSPrefix: true, parseTagValue: false, trimValues: true });
+  private vioRaiz = false;
+  private publicada: string | undefined;
+  readonly registros: RegistroLista[] = [];
+
+  agregar(trozo: string): void {
+    this.hash.update(trozo);
+    this.pendiente += trozo;
+    if (!this.vioRaiz && /<(?:[\w-]+:)?sdnList[\s>]/.test(this.pendiente)) this.vioRaiz = true;
+    if (!this.publicada) {
+      const p = /<(?:[\w-]+:)?Publish_Date>([^<]*)</.exec(this.pendiente);
+      if (p) this.publicada = p[1].trim();
+    }
+    let fin = 0;
+    CIERRE.lastIndex = 0;
+    for (let m = CIERRE.exec(this.pendiente); m; m = CIERRE.exec(this.pendiente)) {
+      const hasta = m.index + m[0].length;
+      // Apertura más cercana antes de este cierre
+      let desde = -1;
+      APERTURA.lastIndex = fin;
+      for (let a = APERTURA.exec(this.pendiente); a && a.index < m.index; a = APERTURA.exec(this.pendiente)) desde = a.index;
+      if (desde >= 0) {
+        const e = this.parser.parse(this.pendiente.slice(desde, hasta))?.sdnEntry;
+        const r = e ? registroOfac(e) : null;
+        if (r) this.registros.push(r);
+      }
+      fin = hasta;
+    }
+    // Se conserva solo lo que falta por cerrar (máximo un sdnEntry incompleto)
+    if (fin) this.pendiente = this.pendiente.slice(fin);
+    else if (this.vioRaiz && this.publicada && this.pendiente.length > 2_000_000) {
+      throw new Error('El archivo de OFAC trae un registro demasiado grande o con otro formato');
+    }
+  }
+
+  terminar(): ListaCargada {
+    if (!this.vioRaiz) throw new Error('El archivo de OFAC no tiene el formato esperado (sdnList)');
+    // Un archivo vacío o con otro formato no debe reemplazar la lista vigente.
+    if (!this.registros.length) throw new Error('El archivo de OFAC no trae registros de personas ni entidades');
+    return { generadaEl: this.publicada, sha256: this.hash.digest('hex'), registros: this.registros };
+  }
+}
+
+/** Lee la lista completa desde un texto (pruebas y archivos pequeños). */
+export function parsearListaOfac(xml: string): ListaCargada {
+  const l = new LectorOfac();
+  l.agregar(xml);
+  return l.terminar();
+}
+
+/** Lee la lista desde trozos de texto (descarga por partes). */
+export async function leerListaOfac(trozos: AsyncIterable<string>): Promise<ListaCargada> {
+  const l = new LectorOfac();
+  for await (const t of trozos) l.agregar(t);
+  return l.terminar();
 }

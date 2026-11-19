@@ -1,5 +1,5 @@
 import { claveNombre, personasIdentificadas, type Dato } from '@agente-aml/agente';
-import { cotejar, parsearListaOfac, parsearListaOnu, type Consulta, type ListaCargada, type RegistroLista } from '@agente-aml/listas';
+import { cotejar, leerListaOfac, parsearListaOnu, type Consulta, type ListaCargada, type RegistroLista } from '@agente-aml/listas';
 import { inngest } from '../cliente-inngest.js';
 import { config } from '../config.js';
 import { db, notificar, sinError } from '../datos.js';
@@ -170,14 +170,28 @@ interface ListaDescargable {
   nombre: string;
   tablas: TablasLista;
   url: () => string;
-  parsear: (xml: string) => ListaCargada;
+  leer: (respuesta: Response) => Promise<ListaCargada>;
+}
+
+/** Texto de la respuesta por partes, sin cortar caracteres de varios bytes. */
+async function* trozosDe(respuesta: Response): AsyncIterable<string> {
+  if (!respuesta.body) throw new Error('La descarga no trae contenido');
+  const lector = respuesta.body.pipeThrough(new TextDecoderStream()).getReader();
+  for (;;) {
+    const { done, value } = await lector.read();
+    if (done) return;
+    yield value;
+  }
 }
 
 const LISTA_ONU: ListaDescargable = {
-  fuente: 'onu', nombre: 'la lista ONU', tablas: TABLAS_ONU, url: () => config.onuListaUrl, parsear: parsearListaOnu,
+  fuente: 'onu', nombre: 'la lista ONU', tablas: TABLAS_ONU, url: () => config.onuListaUrl,
+  leer: async (r) => parsearListaOnu(await r.text()),
 };
 const LISTA_OFAC: ListaDescargable = {
-  fuente: 'ofac', nombre: 'la lista SDN de la OFAC', tablas: TABLAS_OFAC, url: () => config.ofacListaUrl, parsear: parsearListaOfac,
+  fuente: 'ofac', nombre: 'la lista SDN de la OFAC', tablas: TABLAS_OFAC, url: () => config.ofacListaUrl,
+  // Por partes: el archivo de OFAC es grande y completo agota la memoria del servidor
+  leer: (r) => leerListaOfac(trozosDe(r)),
 };
 
 /**
@@ -188,7 +202,7 @@ const LISTA_OFAC: ListaDescargable = {
 async function descargarYGuardar(l: ListaDescargable): Promise<{ sha256: string; referencias: string[] } | null> {
   const r = await fetch(l.url());
   if (!r.ok) throw new Error(`No se pudo descargar ${l.nombre}: ${r.status}`);
-  const nueva = l.parsear(await r.text());
+  const nueva = await l.leer(r);
   const anterior = await cargarListaVigente(l.tablas);
   const parcial = await sinError(
     db().from(l.tablas.registros).select('referencia').eq('version_sha256', nueva.sha256).limit(1),

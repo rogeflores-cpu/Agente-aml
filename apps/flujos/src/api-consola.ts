@@ -244,7 +244,11 @@ apiConsola.post('/verificaciones/:id/disponer', async (c) => {
     name: 'aml/verificacion.dispuesta',
     data: { organizacionId: data.organizacion_id, verificacionId: data.verificacion_id, resultado: cuerpo.data.resultado },
   });
-  if (cuerpo.data.resultado === 'coincidencia_confirmada') {
+  // El plazo de 24 horas y su escalamiento son del art. 43: no aplican a OFAC
+  const fuenteVerificacion = ((await sinError(
+    db().from('verificaciones').select('fuente').eq('id', data.verificacion_id).maybeSingle(),
+  )) as { fuente: string } | null)?.fuente;
+  if (cuerpo.data.resultado === 'coincidencia_confirmada' && fuenteVerificacion !== 'ofac') {
     await inngest.send({
       name: 'aml/onu.coincidencia_confirmada',
       data: { organizacionId: data.organizacion_id, expedienteId: data.expediente_id, verificacionId: data.verificacion_id, confirmadaEn: ahora },

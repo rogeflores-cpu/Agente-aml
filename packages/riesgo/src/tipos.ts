@@ -72,6 +72,12 @@ export interface PerfilEvaluacion {
   transaccionInusual: boolean;
   /** Resultado del cotejo con listas del Consejo de Seguridad de la ONU (art. 43). */
   coincidenciaOnu: 'ninguna' | 'posible' | 'confirmada';
+  /**
+   * Resultado del cotejo con la lista SDN de OFAC (EE. UU.). No es lista del
+   * art. 43: no bloquea ni se comunica al MP; eleva el riesgo y exige
+   * debida diligencia intensificada. Sin dato equivale a 'ninguna'.
+   */
+  coincidenciaOfac?: 'ninguna' | 'posible' | 'confirmada';
 }
 
 export interface ConfiguracionRiesgo {

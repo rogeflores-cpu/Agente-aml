@@ -30,9 +30,9 @@ export function Expediente({ fuente, id, rol, volver }: { fuente: Fuente; id: st
       ? { texto: 'Bloqueo preventivo vigente: comunique por escrito al Ministerio Público dentro de 24 horas desde la detección y registre la comunicación.', ir: 'alertas' }
       : porLiberar
       ? { texto: 'Una persona de este expediente tiene el mismo nombre que una coincidencia confirmada en otro expediente: márquelo como homónimo o chequeo verificado para liberarlo.', ir: 'alertas' }
-      : e.verificaciones.some((v) => v.resultado === 'coincidencia_confirmada') && alertas
+      : e.verificaciones.some((v) => v.resultado === 'coincidencia_confirmada' && v.fuente !== 'ofac') && alertas
       ? { texto: 'Coincidencia confirmada: limite la disposición de fondos y comunique al Ministerio Público dentro de 24 horas.', ir: 'alertas' }
-      : porDisponer ? { texto: `Disponga ${porDisponer} posible(s) coincidencia(s) con las listas del art. 43.`, ir: 'listas' }
+      : porDisponer ? { texto: `Disponga ${porDisponer} posible(s) coincidencia(s) con las listas de control.`, ir: 'listas' }
       : e.pendientes.length ? { texto: `El cliente tiene ${e.pendientes.length} pendiente(s). El agente le está dando seguimiento.`, ir: 'resumen' }
       : !ev ? { texto: 'Calcule la evaluación de riesgo.', ir: 'riesgo' }
       : alertas && !decidido ? { texto: `Analice ${alertas} alerta(s) abierta(s) antes de decidir.`, ir: 'alertas' }
@@ -298,6 +298,7 @@ function Listas({ e, fuente, alCambiar }: { e: DetalleExpediente; fuente: Fuente
 const NOMBRE_FUENTE: Record<string, string> = {
   onu: 'lista consolidada ONU',
   designacion_1373: 'designaciones S/RES/1373',
+  ofac: 'lista SDN de la OFAC (EE. UU.)',
 };
 
 const RESULTADOS: Record<Verificacion['resultado'], { texto: string; clase: string }> = {
@@ -338,7 +339,10 @@ function TarjetaVerificacion({ v, fuente, alCambiar }: { v: Verificacion; fuente
             <label className="flex items-center gap-2"><input type="radio" checked={resultado === 'descartada'} onChange={() => setResultado('descartada')} /> Descartar: no es la misma persona</label>
             <label className="flex items-center gap-2"><input type="radio" checked={resultado === 'coincidencia_confirmada'} onChange={() => setResultado('coincidencia_confirmada')} /> Confirmar coincidencia</label>
           </div>
-          {resultado === 'coincidencia_confirmada' && (
+          {resultado === 'coincidencia_confirmada' && v.fuente === 'ofac' && (
+            <Mensaje tipo="aviso">Al confirmar, el riesgo del expediente sube a alto con debida diligencia intensificada y se abre una alerta para documentar el análisis y evaluar un reporte de transacción sospechosa. OFAC no es lista del art. 43: no hay bloqueo preventivo ni comunicación al Ministerio Público. El cliente no será informado (art. 38).</Mensaje>
+          )}
+          {resultado === 'coincidencia_confirmada' && v.fuente !== 'ofac' && (
             <Mensaje tipo="error">Al confirmar queda un bloqueo preventivo sobre la persona en toda la organización (no se aprueba ni se cierra ninguna operación suya) y se abre una alerta con plazo de 24 horas desde la detección para comunicar por escrito al Ministerio Público (art. 43). El cliente no será informado (art. 38).</Mensaje>
           )}
           <AreaTexto valor={justificacion} setValor={setJustificacion} placeholder="Justificación: datos comparados (fecha de nacimiento, nacionalidad, documento) y conclusión" />

@@ -201,7 +201,7 @@ export interface Fuente {
 
 /** Búsqueda libre en las listas cargadas (ONU y designaciones S/RES/1373). */
 export interface ResultadoLista {
-  fuente: 'onu' | 'designacion_1373';
+  fuente: 'onu' | 'designacion_1373' | 'ofac';
   motivo: 'referencia' | 'documento' | 'nombre';
   puntaje: number;
   nombreCoincidente: string;
@@ -216,6 +216,9 @@ export interface ResultadoLista {
   incluidoEl?: string;
 }
 export interface RespuestaBusquedaListas {
-  listas: { onuRegistros: number; onuGeneradaEl: string | null; onuCargadaEn: string | null; designaciones1373: number };
+  listas: {
+    onuRegistros: number; onuGeneradaEl: string | null; onuCargadaEn: string | null; designaciones1373: number;
+    ofacRegistros: number; ofacGeneradaEl: string | null; ofacCargadaEn: string | null;
+  };
   resultados: ResultadoLista[];
 }

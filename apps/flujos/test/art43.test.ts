@@ -59,6 +59,11 @@ describe('art. 43 c: designaciones de la S/RES/1373', () => {
     expect(confirmada.perfil.coincidenciaOnu).toBe('confirmada');
     const posible = construirPerfil(entrada, operacion, [ver('onu', 'sin_coincidencia'), ver('designacion_1373', 'posible_coincidencia')] as any);
     expect(posible.perfil.coincidenciaOnu).toBe('posible');
+    // OFAC no cuenta como coincidencia del art. 43: va en su propio campo
+    const conOfac = construirPerfil(entrada, operacion, [ver('onu', 'sin_coincidencia'), ver('ofac', 'coincidencia_confirmada')] as any);
+    expect(conOfac.perfil.coincidenciaOnu).toBe('ninguna');
+    expect(conOfac.perfil.coincidenciaOfac).toBe('confirmada');
+    expect(construirPerfil(entrada, operacion, [ver('onu', 'sin_coincidencia'), ver('ofac', 'posible_coincidencia')] as any).perfil.coincidenciaOfac).toBe('posible');
     // Sin cotejo ONU se sigue advirtiendo aunque haya cotejo 1373
     const sinOnu = construirPerfil(entrada, operacion, [ver('designacion_1373', 'sin_coincidencia')] as any);
     expect(sinOnu.advertencias.some((a) => a.includes('lista de la ONU'))).toBe(true);

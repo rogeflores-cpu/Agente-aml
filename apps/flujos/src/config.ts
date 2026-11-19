@@ -24,6 +24,10 @@ export const config = {
   get dominioPortal() { return requerida('PORTAL_DOMINIO'); },
   /** URL del XML de la lista consolidada del Consejo de Seguridad de la ONU. */
   get onuListaUrl() { return requerida('ONU_LISTA_URL'); },
+  /** URL del XML de la lista SDN de la OFAC (EE. UU.). Tiene valor por defecto. */
+  get ofacListaUrl() {
+    return process.env.OFAC_LISTA_URL || 'https://sanctionslistservice.ofac.treas.gov/api/PublicationPreview/exports/SDN.XML';
+  },
   /**
    * Opcional: URL a la que se envía cada día el ancla de la bitácora (último
    * eslabón por organización) para conservarla fuera de la base, p. ej. un

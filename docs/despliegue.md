@@ -104,10 +104,13 @@ teléfono; si no, correo; si tampoco hay correo, el ejecutivo recibe el enlace p
 1. En inngest.com, cree la cuenta y el entorno **Production**.
 2. Copie la **Event Key** y la **Signing Key**.
 3. Después del paso 5, en *Apps → Sync new app*, indique
-   `https://aml-api-da6s.onrender.com/api/inngest`. Deben aparecer **11 funciones** (bienvenida,
-   cotejos ONU y 1373, lista ONU diaria, plazos del art. 43, verificación diferida, actualización
+   `https://aml-api-da6s.onrender.com/api/inngest`. Deben aparecer **12 funciones** (bienvenida,
+   cotejos ONU, 1373 y OFAC, listas ONU y OFAC diarias, plazos del art. 43, verificación diferida, actualización
    periódica, WhatsApp entrante, revisión GAFI y ancla de la bitácora).
-4. Ejecute una vez a mano la función `lista-onu-diaria` (*Invoke*) para cargar la lista de la ONU antes
+4. Ejecute una vez a mano `lista-ofac-diaria` (*All actions → Invoke*) para cargar la lista SDN de la OFAC.
+   Una coincidencia con OFAC abre la alerta `OFAC_POSIBLE` y, si el oficial la confirma, sube el riesgo a
+   alto con debida diligencia intensificada; no hay bloqueo del art. 43 (criterio del 19-nov-2026).
+5. Ejecute una vez a mano la función `lista-onu-diaria` (*Invoke*) para cargar la lista de la ONU antes
    del primer expediente; después corre sola todos los días a las 5:00.
 
 ### 4. Repositorio
@@ -224,7 +227,7 @@ según el enlace.
 
 - [ ] `https://aml-api-da6s.onrender.com/salud` responde `{"ok":true}`.
 - [ ] Los registros de `aml-api` no muestran la línea `ATENCIÓN: faltan variables de entorno`.
-- [ ] Inngest muestra las 11 funciones y la lista ONU quedó cargada.
+- [ ] Inngest muestra las 12 funciones y las listas ONU y OFAC quedaron cargadas.
 - [ ] Supabase: registro público desactivado, bucket `expedientes` privado, esquema `aml` expuesto.
 - [ ] Consola y plataforma abren con candado (HTTPS) y aceptan el inicio de sesión.
 - [ ] Un enlace de prueba del portal abre con la marca de la inmobiliaria.

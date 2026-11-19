@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cotejar, fechaOfac, parsearListaOfac } from '../src/index.js';
+import { cotejar, fechaOfac, leerListaOfac, parsearListaOfac } from '../src/index.js';
 
 const XML = `<?xml version="1.0" standalone="yes"?>
 <sdnList xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="https://sanctionslistservice.ofac.treas.gov/api/PublicationPreview/exports/XML">
@@ -44,6 +44,14 @@ describe('lista SDN de OFAC', () => {
   it('rechaza un archivo con otro formato o sin registros', () => {
     expect(() => parsearListaOfac('<otro/>')).toThrow();
     expect(() => parsearListaOfac('<sdnList><publshInformation/></sdnList>')).toThrow();
+  });
+  it('leída por partes (trozos pequeños) da lo mismo que completa, con el mismo SHA-256', async () => {
+    const completa = parsearListaOfac(XML);
+    for (const tam of [1, 7, 64, 500]) {
+      async function* trozos() { for (let i = 0; i < XML.length; i += tam) yield XML.slice(i, i + tam); }
+      const porPartes = await leerListaOfac(trozos());
+      expect(porPartes).toEqual(completa);
+    }
   });
   it('convierte las fechas de OFAC', () => {
     expect(fechaOfac('05 Jul 1962')).toBe('1962-07-05');

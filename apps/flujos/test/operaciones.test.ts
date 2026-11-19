@@ -64,6 +64,14 @@ describe('validación de operaciones', () => {
   it('rechaza operaciones sin partes, medios desconocidos o pagos mayores al precio', async () => {
     const { esquemaOperacion } = await import('../src/api-operaciones.js');
     expect(esquemaOperacion.safeParse({ ...operacionValida, partes: [] }).success).toBe(false);
+    // Inmueble: municipio del catálogo de su departamento; finca, folio y libro juntos y por separado
+    const inm = (i: object) => esquemaOperacion.safeParse({ ...operacionValida, inmueble: i });
+    expect(inm({ departamento: 'Guatemala', municipio: 'Antigua Guatemala' }).success).toBe(false);
+    expect(inm({ departamento: 'Guatemala' }).success).toBe(false);
+    expect(inm({ departamento: 'Narnia', municipio: 'Mixco' }).success).toBe(false);
+    expect(inm({ departamento: 'Guatemala', municipio: 'Mixco', finca: '1234' }).success).toBe(false);
+    const ok = inm({ departamento: 'Guatemala', municipio: 'Mixco', finca: '18,452', folio: '210', libro: '98e' });
+    expect(ok.success && ok.data.inmueble).toMatchObject({ finca: '18452', folio: '210', libro: '98E' });
     expect(esquemaOperacion.safeParse({ ...operacionValida, formaPago: [{ medio: 'trueque', monto: 10, pagador: 'cliente' }] }).success).toBe(false);
     expect(esquemaOperacion.safeParse({ ...operacionValida, formaPago: [{ medio: 'efectivo', monto: 950000, pagador: 'cliente' }] }).success).toBe(false);
   });

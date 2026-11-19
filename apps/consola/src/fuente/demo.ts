@@ -35,7 +35,7 @@ function crearDatos(): { expedientes: DetalleExpediente[]; perfiles: Record<stri
   const base = {
     organizacionId: ORG, verificacionDiferidaHasta: null, evaluaciones: [], decisiones: [], alertas: [], bloqueos: [], bloqueosRelacionados: [], pendientes: [],
   };
-  const opA = { tipo: 'compraventa', precio: 1540000, moneda: 'GTQ', inmueble: { departamento: 'Sacatepéquez', municipio: 'Antigua Guatemala', finca: '18,452 folio 210 libro 98' }, formaPago: [{ medio: 'financiamiento_bancario', monto: 1232000 }, { medio: 'transferencia_local', monto: 308000 }] };
+  const opA = { tipo: 'compraventa', precio: 1540000, moneda: 'GTQ', inmueble: { departamento: 'Sacatepéquez', municipio: 'Antigua Guatemala', finca: '18452', folio: '210', libro: '98' }, formaPago: [{ medio: 'financiamiento_bancario', monto: 1232000 }, { medio: 'transferencia_local', monto: 308000 }] };
 
   const A: DetalleExpediente = {
     ...base, id: 'exp-a', codigoOperacion: 'OP-2026-00014', parte: 'comprador', tipoPersona: 'individual', estado: 'listo_para_decision',

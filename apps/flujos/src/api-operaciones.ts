@@ -1,3 +1,4 @@
+import { DEPARTAMENTOS_GUATEMALA, errorRegistral, municipioValido, normalizarFinca, normalizarLibro } from '@agente-aml/riesgo';
 import { createClient } from '@supabase/supabase-js';
 import { Hono, type Context } from 'hono';
 import { cors } from 'hono/cors';
@@ -67,11 +68,20 @@ export const esquemaParte = z.object({
 export const esquemaOperacion = z.object({
   organizacionId: z.string().uuid(),
   tipo: z.enum(['compraventa', 'intermediacion']),
+  // Departamento y municipio del catálogo oficial; finca, folio y libro siempre por separado
   inmueble: z.object({
-    departamento: z.string().trim().min(2),
-    municipio: z.string().trim().optional(),
-    finca: z.string().trim().optional(),
-    direccion: z.string().trim().optional(),
+    departamento: z.string().trim().refine((d) => DEPARTAMENTOS_GUATEMALA.includes(d), 'Departamento inválido'),
+    municipio: z.string().trim().min(1, 'Indique el municipio'),
+    finca: z.string().trim().transform(normalizarFinca).optional(),
+    folio: z.string().trim().transform(normalizarFinca).optional(),
+    libro: z.string().trim().transform(normalizarLibro).optional(),
+    direccion: z.string().trim().max(300).optional(),
+  }).superRefine((i, ctx) => {
+    if (!municipioValido(i.departamento, i.municipio)) {
+      ctx.addIssue({ code: 'custom', path: ['municipio'], message: `El municipio no corresponde a ${i.departamento}` });
+    }
+    const r = errorRegistral(i);
+    if (r) ctx.addIssue({ code: 'custom', path: [r.campo], message: r.mensaje });
   }),
   precio: z.number().positive().max(1e12).optional(),
   moneda: moneda.default('GTQ'),

@@ -1,3 +1,4 @@
+import { DEPARTAMENTOS_GUATEMALA, errorRegistral, municipioValido } from '@agente-aml/riesgo';
 import type { EstadoComercial, EstadoExpediente, NuevaOperacion, NuevoPagoEfectivo } from './tipos';
 
 /** Misma regla que la vista aml.operaciones_comercial (art. 38). */
@@ -19,7 +20,12 @@ const CORREO = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 /** Validaciones del formulario. Devuelve los errores por campo; vacío si es válido. */
 export function validarOperacion(op: NuevaOperacion): Record<string, string> {
   const e: Record<string, string> = {};
-  if (!op.inmueble.departamento?.trim()) e['inmueble.departamento'] = 'Indique el departamento';
+  const { departamento, municipio } = op.inmueble;
+  if (!departamento?.trim() || !DEPARTAMENTOS_GUATEMALA.includes(departamento)) e['inmueble.departamento'] = 'Indique el departamento';
+  else if (!municipio?.trim()) e['inmueble.municipio'] = 'Indique el municipio';
+  else if (!municipioValido(departamento, municipio)) e['inmueble.municipio'] = `El municipio no corresponde a ${departamento}`;
+  const registral = errorRegistral(op.inmueble);
+  if (registral) e[`inmueble.${registral.campo}`] = registral.mensaje;
   if (op.precio !== undefined && !(op.precio > 0)) e.precio = 'El precio debe ser mayor que cero';
   if (op.valorReferencia !== undefined && !(op.valorReferencia > 0)) e.valorReferencia = 'Debe ser mayor que cero';
   op.formaPago.forEach((p, i) => { if (!(p.monto > 0)) e[`formaPago.${i}.monto`] = 'Monto mayor que cero'; });

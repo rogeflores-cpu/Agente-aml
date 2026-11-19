@@ -144,7 +144,7 @@ export type MedioPago = 'efectivo' | 'transferencia_local' | 'transferencia_exte
 
 export interface NuevaOperacion {
   tipo: 'compraventa' | 'intermediacion';
-  inmueble: { departamento: string; municipio?: string; finca?: string; direccion?: string };
+  inmueble: { departamento: string; municipio?: string; finca?: string; folio?: string; libro?: string; direccion?: string };
   precio?: number;
   moneda: string;
   valorReferencia?: number;

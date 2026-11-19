@@ -166,6 +166,7 @@ export interface Fuente {
   /** rolDemo solo se usa en modo demostración para elegir con qué rol entrar. */
   iniciarSesion(correo: string, clave: string, rolDemo?: Rol): Promise<void>;
   cerrarSesion(): Promise<void>;
+  buscarListas(organizacionId: string, q: string, tipo?: 'individual' | 'entidad'): Promise<RespuestaBusquedaListas>;
   /** Enlace de invitación o recuperación con el que se abrió la aplicación. */
   enlace(): import('./enlace').EnlaceAuth;
   fijarClave(clave: string): Promise<void>;
@@ -196,4 +197,25 @@ export interface Fuente {
   cerrarOperacion(operacionId: string, estado: 'cerrada' | 'cancelada'): Promise<void>;
   /** El oficial corrige un dato con motivo; queda como corregido por el oficial. */
   corregirDato(expedienteId: string, campo: string, valor: unknown, motivo: string): Promise<void>;
+}
+
+/** Búsqueda libre en las listas cargadas (ONU y designaciones S/RES/1373). */
+export interface ResultadoLista {
+  fuente: 'onu' | 'designacion_1373';
+  motivo: 'referencia' | 'documento' | 'nombre';
+  puntaje: number;
+  nombreCoincidente: string;
+  referencia: string;
+  lista: string;
+  tipo: 'individual' | 'entidad';
+  nombre: string;
+  alias: string[];
+  fechasNacimiento: string[];
+  nacionalidades: string[];
+  documentos: string[];
+  incluidoEl?: string;
+}
+export interface RespuestaBusquedaListas {
+  listas: { onuRegistros: number; onuGeneradaEl: string | null; onuCargadaEn: string | null; designaciones1373: number };
+  resultados: ResultadoLista[];
 }

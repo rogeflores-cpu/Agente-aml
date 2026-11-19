@@ -65,6 +65,7 @@ export interface Fuente {
   sesion(): Promise<{ correo: string } | null>;
   iniciarSesion(correo: string, clave: string): Promise<void>;
   cerrarSesion(): Promise<void>;
+  buscarListas(q: string, tipo?: 'individual' | 'entidad'): Promise<RespuestaBusquedaListas>;
   /** Enlace de invitación o recuperación con el que se abrió la aplicación. */
   enlace(): import('./enlace').EnlaceAuth;
   fijarClave(clave: string): Promise<void>;
@@ -85,4 +86,25 @@ export interface Fuente {
   revocarDesignacion1373(id: string, revocadaEl: string, referencia: string): Promise<void>;
   avisos(): Promise<AvisoPlataforma[]>;
   atenderAviso(id: string): Promise<void>;
+}
+
+/** Búsqueda libre en las listas cargadas (ONU y designaciones S/RES/1373). */
+export interface ResultadoLista {
+  fuente: 'onu' | 'designacion_1373';
+  motivo: 'referencia' | 'documento' | 'nombre';
+  puntaje: number;
+  nombreCoincidente: string;
+  referencia: string;
+  lista: string;
+  tipo: 'individual' | 'entidad';
+  nombre: string;
+  alias: string[];
+  fechasNacimiento: string[];
+  nacionalidades: string[];
+  documentos: string[];
+  incluidoEl?: string;
+}
+export interface RespuestaBusquedaListas {
+  listas: { onuRegistros: number; onuGeneradaEl: string | null; onuCargadaEn: string | null; designaciones1373: number };
+  resultados: ResultadoLista[];
 }

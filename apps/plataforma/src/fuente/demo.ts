@@ -1,5 +1,6 @@
 import { configuracionBaseInmobiliaria, validarConfiguracion } from '@agente-aml/riesgo';
 import { hoyLocal, nitConFormato, nitVerificadorCorrecto, subdominioValido } from '../validacion';
+import { buscarDemo } from './listas-demo';
 import type { AvisoPlataforma, Designacion1373, DetalleOrganizacion, EstadoAlta, Fuente, ListaGafi } from './tipos';
 
 /**
@@ -71,6 +72,7 @@ export function fuenteDemo(): Fuente {
     async sesion() { return sesion; },
     async iniciarSesion(correo) { sesion = { correo: correo || 'admin@plataforma.example' }; },
     async cerrarSesion() { sesion = null; },
+    async buscarListas(q, tipo) { return buscarDemo(q, tipo); },
     enlace: () => null,
     async fijarClave() {},
     async recuperarClave() {},

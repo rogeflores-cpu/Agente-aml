@@ -49,6 +49,9 @@ export function fuenteSupabase(): Fuente {
     async cerrarSesion() {
       await sb.auth.signOut();
     },
+    async buscarListas(org, q, tipo) {
+      return llamar(`/organizaciones/${org}/buscar-listas?${new URLSearchParams({ q, ...(tipo ? { tipo } : {}) })}`, undefined, 'GET');
+    },
     enlace: () => enlace,
     async fijarClave(clave) {
       const { error } = await sb.auth.updateUser({ password: clave });

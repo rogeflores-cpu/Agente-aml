@@ -3,6 +3,7 @@ import { Avisos } from './componentes/Avisos';
 import { Mensaje, Vacio } from './componentes/ui';
 import { ROLES_CUMPLIMIENTO, ROLES_OPERATIVOS, type Fuente, type Organizacion, type Rol, type Sesion } from './fuente/tipos';
 import { Bandeja } from './paginas/Bandeja';
+import { BuscarListas } from './paginas/BuscarListas';
 import { Expediente } from './paginas/Expediente';
 import { FijarClave } from './paginas/FijarClave';
 import { Ingreso } from './paginas/Ingreso';
@@ -14,6 +15,7 @@ const NOMBRE_ROL: Record<string, string> = { oficial: 'Oficial de cumplimiento',
 export function App({ fuente }: { fuente: Fuente }) {
   const [sesion, setSesion] = useState<Sesion | null | undefined>(undefined);
   const [orgs, setOrgs] = useState<Organizacion[]>([]);
+  const [pestana, setPestana] = useState<'bandeja' | 'buscar'>('bandeja');
   const [org, setOrg] = useState<Organizacion | null>(null);
   // Los avisos por correo enlazan a /?expediente=<id>: se abre después de iniciar sesión
   const [expediente, setExpediente] = useState<string | null>(() => {
@@ -74,7 +76,19 @@ export function App({ fuente }: { fuente: Fuente }) {
         ) : expediente ? (
           <Expediente fuente={fuente} id={expediente} rol={org.rol} volver={() => setExpediente(null)} />
         ) : (
-          <Bandeja fuente={fuente} organizacionId={org.id} abrir={setExpediente} />
+          <div className="space-y-5">
+            <nav className="flex gap-1">
+              {([['bandeja', 'Bandeja de cumplimiento'], ['buscar', 'Buscar en listas']] as const).map(([clave, texto]) => (
+                <button key={clave} onClick={() => setPestana(clave)}
+                  className={`rounded-lg px-3 py-1.5 text-sm ${pestana === clave ? 'bg-marca-claro font-medium text-marca' : 'text-tinta-suave hover:bg-white'}`}>
+                  {texto}
+                </button>
+              ))}
+            </nav>
+            {pestana === 'buscar'
+              ? <BuscarListas buscar={(q, t) => fuente.buscarListas(org.id, q, t)} />
+              : <Bandeja fuente={fuente} organizacionId={org.id} abrir={setExpediente} />}
+          </div>
         )}
       </main>
     </div>

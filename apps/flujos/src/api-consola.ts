@@ -7,6 +7,7 @@ import { inngest } from './cliente-inngest.js';
 import { config } from './config.js';
 import { db, notificar, sinError } from './datos.js';
 import { construirPerfil } from './perfil.js';
+import { buscarListas, esquemaBusquedaListas } from './busqueda-listas.js';
 import {
   ajustePermitido, correoVerificado, evaluacionVigente, mismaPersona, nivelMinimoImpuesto, normalizarDocumento, esquemaListaGafi,
 } from './reglas-consola.js';
@@ -474,6 +475,17 @@ apiConsola.get('/documentos/:id/url', async (c) => {
   const firmado = await db().storage.from('expedientes').createSignedUrl(data.ruta_storage, 300);
   if (firmado.error) return c.json({ error: firmado.error.message }, 500);
   return c.json({ url: firmado.data.signedUrl, expiraEnSegundos: 300 });
+});
+
+// ------------------------------------------- búsqueda en las listas cargadas
+// Solo personal de cumplimiento (oficial, suplente y auditor) de la organización.
+apiConsola.get('/organizaciones/:id/buscar-listas', async (c) => {
+  if (!/^[0-9a-f-]{36}$/i.test(c.req.param('id'))) return c.json({ error: 'Organización no encontrada' }, 404);
+  const rol = await rolEn(c.req.param('id'), c.get('usuarioId'));
+  if (!rol || !['oficial', 'oficial_suplente', 'auditor'].includes(rol)) return c.json({ error: 'Solo personal de cumplimiento' }, 403);
+  const p = esquemaBusquedaListas.safeParse({ q: c.req.query('q') ?? '', tipo: c.req.query('tipo') || undefined });
+  if (!p.success) return invalido(c, p.error);
+  return c.json(await buscarListas(p.data));
 });
 
 // --------------------------------------------- listas GAFI (administración)

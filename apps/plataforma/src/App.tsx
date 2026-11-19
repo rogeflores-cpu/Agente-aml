@@ -3,6 +3,7 @@ import { Vacio } from './componentes/ui';
 import type { Fuente } from './fuente/tipos';
 import { Asistente } from './paginas/Asistente';
 import { Avisos } from './paginas/Avisos';
+import { BuscarListas } from './paginas/BuscarListas';
 import { Designaciones1373 } from './paginas/Designaciones1373';
 import { Detalle } from './paginas/Detalle';
 import { FijarClave } from './paginas/FijarClave';
@@ -10,7 +11,7 @@ import { Ingreso } from './paginas/Ingreso';
 import { ListasGafi } from './paginas/ListasGafi';
 import { Organizaciones } from './paginas/Organizaciones';
 
-type Vista = { tipo: 'organizaciones' } | { tipo: 'nueva' } | { tipo: 'detalle'; id: string } | { tipo: 'gafi' } | { tipo: 'designaciones' } | { tipo: 'avisos' };
+type Vista = { tipo: 'organizaciones' } | { tipo: 'nueva' } | { tipo: 'detalle'; id: string } | { tipo: 'gafi' } | { tipo: 'designaciones' } | { tipo: 'buscar' } | { tipo: 'avisos' };
 
 export function App({ fuente }: { fuente: Fuente }) {
   const [sesion, setSesion] = useState<{ correo: string } | null | undefined>(undefined);
@@ -36,6 +37,7 @@ export function App({ fuente }: { fuente: Fuente }) {
     { clave: 'organizaciones', texto: 'Organizaciones' },
     { clave: 'gafi', texto: 'Listas GAFI' },
     { clave: 'designaciones', texto: 'Designaciones 1373' },
+    { clave: 'buscar', texto: 'Buscar en listas' },
     { clave: 'avisos', texto: 'Avisos', cuenta: pendientes || undefined },
   ];
   const activa = vista.tipo === 'nueva' || vista.tipo === 'detalle' ? 'organizaciones' : vista.tipo;
@@ -72,6 +74,7 @@ export function App({ fuente }: { fuente: Fuente }) {
         {vista.tipo === 'detalle' && <Detalle fuente={fuente} id={vista.id} volver={() => setVista({ tipo: 'organizaciones' })} />}
         {vista.tipo === 'gafi' && <ListasGafi fuente={fuente} />}
         {vista.tipo === 'designaciones' && <Designaciones1373 fuente={fuente} />}
+        {vista.tipo === 'buscar' && <BuscarListas buscar={(q, t) => fuente.buscarListas(q, t)} />}
         {vista.tipo === 'avisos' && <Avisos fuente={fuente} alCambiar={contarAvisos} />}
       </main>
     </div>

@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { similitudNombres, tokensEntidad, tokensPersona } from '@agente-aml/listas';
 
 /** Reglas puras que aplica la API de la consola. Se prueban sin base de datos. */
@@ -56,3 +57,13 @@ export function mismaPersona(nombreFicha: string, nombreExpediente: string, enti
   const tk = entidad ? tokensEntidad : tokensPersona;
   return similitudNombres(tk(nombreFicha), tk(nombreExpediente)) >= 0.9;
 }
+
+/** Una versión de las listas del GAFI (declaraciones de un pleno). */
+const iso2 = z.string().regex(/^[A-Za-z]{2}$/).transform((x) => x.toUpperCase());
+export const esquemaListaGafi = z.object({
+  plenario: z.string().refine((x) => plenarioValido(x), 'La fecha del pleno no puede ser futura'),
+  altoRiesgo: z.array(iso2),
+  monitoreo: z.array(iso2),
+  fuenteAltoRiesgo: z.string().url(),
+  fuenteMonitoreo: z.string().url(),
+});

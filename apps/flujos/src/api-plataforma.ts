@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { inngest } from './cliente-inngest.js';
 import { config } from './config.js';
 import { db, sinError } from './datos.js';
+import { esquemaListaGafi } from './reglas-consola.js';
 
 /**
  * API de administración de la plataforma: alta de organizaciones (sujetos
@@ -368,6 +369,20 @@ apiPlataforma.get('/listas-gafi', async (c) => {
     .select('id, plenario, alto_riesgo, monitoreo, fuente_alto_riesgo, fuente_monitoreo, cargada_por, cargada_en')
     .order('plenario', { ascending: false }).limit(12));
   return c.json({ listas: filas });
+});
+
+// La plataforma corre en otro origen que la consola: la carga va por esta API
+// (la CORS de la API de la consola solo admite el origen de la consola).
+apiPlataforma.post('/listas-gafi', async (c) => {
+  const p = esquemaListaGafi.safeParse(await cuerpo(c));
+  if (!p.success) return invalido(c, p.error);
+  const d = p.data;
+  const { error } = await db().from('listas_gafi').insert({
+    plenario: d.plenario, alto_riesgo: d.altoRiesgo, monitoreo: d.monitoreo,
+    fuente_alto_riesgo: d.fuenteAltoRiesgo, fuente_monitoreo: d.fuenteMonitoreo, cargada_por: c.get('correo'),
+  });
+  if (error) return c.json({ error: error.message }, 409);
+  return c.json({ ok: true }, 201);
 });
 
 // ------------------------------------------------- designaciones S/RES/1373 (art. 43 c)

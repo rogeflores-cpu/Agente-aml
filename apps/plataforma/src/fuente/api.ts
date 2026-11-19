@@ -83,8 +83,7 @@ export function fuenteApi(): Fuente {
         fuenteAltoRiesgo: l.fuente_alto_riesgo, fuenteMonitoreo: l.fuente_monitoreo, cargadaPor: l.cargada_por, cargadaEn: l.cargada_en,
       }));
     },
-    // La carga de listas GAFI vive en la API de la consola; se reutiliza.
-    async cargarListaGafi(d) { await llamar('/api/consola/plataforma/listas-gafi', d); },
+    async cargarListaGafi(d) { await llamar('/api/plataforma/listas-gafi', d); },
     async designaciones1373() {
       return ((await llamar('/api/plataforma/designaciones-1373')).designaciones as any[]).map((d) => ({
         id: d.id, tipo: d.tipo, nombre: d.nombre, alias: d.alias ?? [], documentos: d.documentos ?? [], fechasNacimiento: d.fechas_nacimiento ?? [],

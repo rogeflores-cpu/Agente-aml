@@ -8,7 +8,7 @@ import { config } from './config.js';
 import { db, notificar, sinError } from './datos.js';
 import { construirPerfil } from './perfil.js';
 import {
-  ajustePermitido, correoVerificado, evaluacionVigente, mismaPersona, nivelMinimoImpuesto, normalizarDocumento, plenarioValido,
+  ajustePermitido, correoVerificado, evaluacionVigente, mismaPersona, nivelMinimoImpuesto, normalizarDocumento, esquemaListaGafi,
 } from './reglas-consola.js';
 import { campoValido, type Campo } from '@agente-aml/agente';
 import { cargarEntradaRevision, cotejosFaltantes, emitirCotejosPendientes, sincronizarPendientes } from './repositorio.js';
@@ -477,18 +477,11 @@ apiConsola.get('/documentos/:id/url', async (c) => {
 });
 
 // --------------------------------------------- listas GAFI (administración)
-const iso = z.string().regex(/^[A-Za-z]{2}$/).transform((x) => x.toUpperCase());
 apiConsola.post('/plataforma/listas-gafi', async (c) => {
   if (!config.adminsPlataforma.includes(c.get('correo')) || !c.get('correoVerificado')) {
     return c.json({ error: 'Solo administradores de la plataforma con correo verificado' }, 403);
   }
-  const cuerpo = z.object({
-    plenario: z.string().refine((x) => plenarioValido(x), 'La fecha del pleno no puede ser futura'),
-    altoRiesgo: z.array(iso),
-    monitoreo: z.array(iso),
-    fuenteAltoRiesgo: z.string().url(),
-    fuenteMonitoreo: z.string().url(),
-  }).safeParse(await c.req.json().catch(() => ({})));
+  const cuerpo = esquemaListaGafi.safeParse(await c.req.json().catch(() => ({})));
   if (!cuerpo.success) return invalido(c, cuerpo.error);
   const d = cuerpo.data;
   const { error } = await db().from('listas_gafi').insert({

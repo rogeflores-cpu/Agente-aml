@@ -7,7 +7,7 @@ const CAMPOS_RESERVADOS = /nivel|riesgo|verific|coincid|alerta|decisi|evaluac|ex
 
 const nueva: NuevaOperacion = {
   tipo: 'compraventa',
-  inmueble: { departamento: 'Escuintla', municipio: 'Puerto San José' },
+  inmueble: { departamento: 'Escuintla', municipio: 'San José' },
   precio: 750000,
   moneda: 'GTQ',
   formaPago: [{ medio: 'financiamiento_bancario', monto: 600000, pagador: 'cliente' }, { medio: 'efectivo', monto: 150000, pagador: 'cliente' }],
@@ -22,6 +22,16 @@ async function comoEjecutivo() {
   await f.iniciarSesion('ejecutivo@demo.example', 'demo', 'ejecutivo');
   return f;
 }
+
+describe('formulario de operación: inmueble', () => {
+  it('exige municipio del departamento y finca, folio y libro juntos', () => {
+    const conInmueble = (inmueble: NuevaOperacion['inmueble']) => validarOperacion({ ...nueva, inmueble });
+    expect(conInmueble({ departamento: 'Escuintla', municipio: '' })['inmueble.municipio']).toBeTruthy();
+    expect(conInmueble({ departamento: 'Escuintla', municipio: 'Mixco' })['inmueble.municipio']).toMatch(/no corresponde/);
+    expect(conInmueble({ departamento: 'Escuintla', municipio: 'San José', finca: '12' })['inmueble.folio']).toBeTruthy();
+    expect(conInmueble({ departamento: 'Escuintla', municipio: 'San José', finca: '12', folio: '3', libro: '4E' })).toEqual({});
+  });
+});
 
 describe('vista operativa (art. 38)', () => {
   it('el ejecutivo no recibe ningún campo de cumplimiento', async () => {

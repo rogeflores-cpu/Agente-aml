@@ -1,13 +1,8 @@
+import { DEPARTAMENTOS_GUATEMALA, municipiosDe, normalizarFinca, normalizarLibro } from '@agente-aml/riesgo';
 import { useState, type ReactNode } from 'react';
 import { Boton, Mensaje, Tarjeta } from '../componentes/ui';
 import type { Fuente, MedioPago, NuevaOperacion } from '../fuente/tipos';
 import { validarOperacion } from '../fuente/validacion';
-
-const DEPARTAMENTOS = [
-  'Alta Verapaz', 'Baja Verapaz', 'Chimaltenango', 'Chiquimula', 'El Progreso', 'Escuintla', 'Guatemala', 'Huehuetenango',
-  'Izabal', 'Jalapa', 'Jutiapa', 'Petén', 'Quetzaltenango', 'Quiché', 'Retalhuleu', 'Sacatepéquez', 'San Marcos',
-  'Santa Rosa', 'Sololá', 'Suchitepéquez', 'Totonicapán', 'Zacapa',
-];
 
 const MEDIOS: { valor: MedioPago; texto: string }[] = [
   { valor: 'financiamiento_bancario', texto: 'Financiamiento bancario' },
@@ -37,7 +32,7 @@ export function RegistrarOperacion({ fuente, organizacionId, cancelar, alRegistr
   fuente: Fuente; organizacionId: string; cancelar: () => void; alRegistrar: (codigo: string) => void;
 }) {
   const [op, setOpBase] = useState<NuevaOperacion>({
-    tipo: 'compraventa', inmueble: { departamento: 'Guatemala', municipio: '', finca: '', direccion: '' },
+    tipo: 'compraventa', inmueble: { departamento: 'Guatemala', municipio: '', finca: '', folio: '', libro: '', direccion: '' },
     moneda: 'GTQ', formaPago: [], partes: [parteVacia('comprador'), parteVacia('vendedor')],
   });
   const [errores, setErrores] = useState<Record<string, string>>({});
@@ -46,7 +41,10 @@ export function RegistrarOperacion({ fuente, organizacionId, cancelar, alRegistr
 
   const limpia = (op: NuevaOperacion): NuevaOperacion => ({
     ...op,
-    inmueble: Object.fromEntries(Object.entries(op.inmueble).filter(([, v]) => v?.trim())) as NuevaOperacion['inmueble'],
+    inmueble: Object.fromEntries(Object.entries({
+      ...op.inmueble,
+      finca: normalizarFinca(op.inmueble.finca ?? ''), folio: normalizarFinca(op.inmueble.folio ?? ''), libro: normalizarLibro(op.inmueble.libro ?? ''),
+    }).filter(([, v]) => v?.trim())) as NuevaOperacion['inmueble'],
     partes: op.partes.map((p) => ({ ...p, nombre: p.nombre.trim(), telefono: p.telefono?.trim() || undefined, correo: p.correo?.trim() || undefined })),
   });
   // Tras el primer intento, los errores se recalculan al corregir cada campo.
@@ -72,16 +70,32 @@ export function RegistrarOperacion({ fuente, organizacionId, cancelar, alRegistr
             </select>
           </Campo>
           <Campo etiqueta="Departamento" error={errores['inmueble.departamento']}>
-            <select value={op.inmueble.departamento} onChange={(e) => setOp({ ...op, inmueble: { ...op.inmueble, departamento: e.target.value } })} className={claseEntrada()}>
-              {DEPARTAMENTOS.map((d) => <option key={d}>{d}</option>)}
+            <select value={op.inmueble.departamento}
+              onChange={(e) => setOp({ ...op, inmueble: { ...op.inmueble, departamento: e.target.value, municipio: '' } })} className={claseEntrada()}>
+              {DEPARTAMENTOS_GUATEMALA.map((d) => <option key={d}>{d}</option>)}
             </select>
           </Campo>
-          <Campo etiqueta="Municipio">
-            <input value={op.inmueble.municipio} onChange={(e) => setOp({ ...op, inmueble: { ...op.inmueble, municipio: e.target.value } })} className={claseEntrada()} />
+          <Campo etiqueta="Municipio" error={errores['inmueble.municipio']}>
+            <select value={op.inmueble.municipio} onChange={(e) => setOp({ ...op, inmueble: { ...op.inmueble, municipio: e.target.value } })}
+              className={claseEntrada(errores['inmueble.municipio'])}>
+              <option value="">Seleccione…</option>
+              {municipiosDe(op.inmueble.departamento).map((m) => <option key={m}>{m}</option>)}
+            </select>
           </Campo>
-          <Campo etiqueta="Finca, folio y libro">
-            <input value={op.inmueble.finca} onChange={(e) => setOp({ ...op, inmueble: { ...op.inmueble, finca: e.target.value } })} className={claseEntrada()} />
-          </Campo>
+          <div className="grid grid-cols-3 gap-3 sm:col-span-2 lg:col-span-4">
+            <Campo etiqueta="No. de finca" error={errores['inmueble.finca']}>
+              <input value={op.inmueble.finca} inputMode="numeric" placeholder="1234" onChange={(e) => setOp({ ...op, inmueble: { ...op.inmueble, finca: e.target.value } })}
+                className={claseEntrada(errores['inmueble.finca'])} />
+            </Campo>
+            <Campo etiqueta="Folio" error={errores['inmueble.folio']}>
+              <input value={op.inmueble.folio} inputMode="numeric" placeholder="56" onChange={(e) => setOp({ ...op, inmueble: { ...op.inmueble, folio: e.target.value } })}
+                className={claseEntrada(errores['inmueble.folio'])} />
+            </Campo>
+            <Campo etiqueta="Libro" error={errores['inmueble.libro']}>
+              <input value={op.inmueble.libro} placeholder="789 o 45E" onChange={(e) => setOp({ ...op, inmueble: { ...op.inmueble, libro: e.target.value } })}
+                className={claseEntrada(errores['inmueble.libro'])} />
+            </Campo>
+          </div>
           <div className="sm:col-span-2 lg:col-span-4">
             <Campo etiqueta="Dirección">
               <input value={op.inmueble.direccion} onChange={(e) => setOp({ ...op, inmueble: { ...op.inmueble, direccion: e.target.value } })} className={claseEntrada()} />

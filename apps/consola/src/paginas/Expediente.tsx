@@ -1,3 +1,4 @@
+import { textoRegistral } from '@agente-aml/riesgo';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import {
   Boton, ESTADOS, Insignia, Mensaje, NIVELES, NOMBRE_DOCUMENTO, Tarjeta, Vacio,
@@ -112,7 +113,7 @@ function Resumen({ e }: { e: DetalleExpediente }) {
         <dl>
           <Fila etiqueta="Tipo"><span className="capitalize">{e.operacion.tipo}</span></Fila>
           <Fila etiqueta="Precio">{moneda(e.operacion.precio, e.operacion.moneda)}</Fila>
-          <Fila etiqueta="Inmueble">{[e.operacion.inmueble.finca, e.operacion.inmueble.municipio, e.operacion.inmueble.departamento].filter(Boolean).join(', ') || '—'}</Fila>
+          <Fila etiqueta="Inmueble">{[textoRegistral(e.operacion.inmueble), e.operacion.inmueble.municipio, e.operacion.inmueble.departamento].filter(Boolean).join(', ') || '—'}</Fila>
           <Fila etiqueta="Forma de pago">
             {e.operacion.formaPago.length ? e.operacion.formaPago.map((p, i) => (
               <div key={i}>{p.medio.replace(/_/g, ' ')}: {moneda(p.monto, p.moneda ?? e.operacion.moneda)}</div>

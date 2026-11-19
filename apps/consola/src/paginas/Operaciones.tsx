@@ -1,3 +1,4 @@
+import { textoRegistral } from '@agente-aml/riesgo';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Boton, Insignia, Mensaje, Tarjeta, Vacio, fecha, moneda } from '../componentes/ui';
 import type { EstadoComercial, FilaOperacion, Fuente, NuevoPagoEfectivo, ParteOperativa } from '../fuente/tipos';
@@ -131,7 +132,7 @@ export function Operaciones({ fuente, organizacionId }: { fuente: Fuente; organi
                 <span className="text-sm tabular-nums">{moneda(o.precio, o.moneda)}</span>
               </span>}>
               <p className="mb-3 text-sm text-tinta-suave">
-                {[o.inmueble.finca, o.inmueble.direccion, o.inmueble.municipio, o.inmueble.departamento].filter(Boolean).join(', ') || 'Inmueble sin datos'}
+                {[textoRegistral(o.inmueble), o.inmueble.direccion, o.inmueble.municipio, o.inmueble.departamento].filter(Boolean).join(', ') || 'Inmueble sin datos'}
                 {' · '}registrada el {fecha(o.creadaEn)}
               </p>
               <table className="w-full text-sm">

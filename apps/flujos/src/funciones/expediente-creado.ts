@@ -10,7 +10,7 @@ import { enviarPlantilla } from '../whatsapp.js';
  * el cliente envía su información a revisión.
  */
 export const expedienteCreado = inngest.createFunction(
-  { id: 'expediente-creado', concurrency: { key: 'event.data.organizacionId', limit: 20 } },
+  { id: 'expediente-creado', concurrency: { key: 'event.data.organizacionId', limit: 5 } },
   { event: 'aml/expediente.creado' },
   async ({ event, step }) => {
     const { organizacionId, expedienteId } = event.data;

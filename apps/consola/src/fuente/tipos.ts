@@ -166,6 +166,11 @@ export interface Fuente {
   /** rolDemo solo se usa en modo demostración para elegir con qué rol entrar. */
   iniciarSesion(correo: string, clave: string, rolDemo?: Rol): Promise<void>;
   cerrarSesion(): Promise<void>;
+  /** Enlace de invitación o recuperación con el que se abrió la aplicación. */
+  enlace(): import('./enlace').EnlaceAuth;
+  fijarClave(clave: string): Promise<void>;
+  /** Envía el correo para crear una contraseña nueva (no revela si el correo existe). */
+  recuperarClave(correo: string): Promise<void>;
   organizaciones(): Promise<Organizacion[]>;
   bandeja(organizacionId: string): Promise<FilaBandeja[]>;
   expediente(id: string): Promise<DetalleExpediente>;

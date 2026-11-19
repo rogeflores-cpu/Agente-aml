@@ -65,6 +65,11 @@ export interface Fuente {
   sesion(): Promise<{ correo: string } | null>;
   iniciarSesion(correo: string, clave: string): Promise<void>;
   cerrarSesion(): Promise<void>;
+  /** Enlace de invitación o recuperación con el que se abrió la aplicación. */
+  enlace(): import('./enlace').EnlaceAuth;
+  fijarClave(clave: string): Promise<void>;
+  /** Envía el correo para crear una contraseña nueva (no revela si el correo existe). */
+  recuperarClave(correo: string): Promise<void>;
   organizaciones(): Promise<EstadoAlta[]>;
   organizacion(id: string): Promise<DetalleOrganizacion>;
   crearOrganizacion(d: NuevaOrganizacion): Promise<{ id: string; advertencias: string[] }>;

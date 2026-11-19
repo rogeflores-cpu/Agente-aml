@@ -5,6 +5,7 @@ import { Asistente } from './paginas/Asistente';
 import { Avisos } from './paginas/Avisos';
 import { Designaciones1373 } from './paginas/Designaciones1373';
 import { Detalle } from './paginas/Detalle';
+import { FijarClave } from './paginas/FijarClave';
 import { Ingreso } from './paginas/Ingreso';
 import { ListasGafi } from './paginas/ListasGafi';
 import { Organizaciones } from './paginas/Organizaciones';
@@ -17,11 +18,19 @@ export function App({ fuente }: { fuente: Fuente }) {
   const [pendientes, setPendientes] = useState(0);
   const contarAvisos = () => fuente.avisos().then((a) => setPendientes(a.filter((x) => !x.atendidoEn).length)).catch(() => {});
 
+  const [enlace, setEnlace] = useState(() => fuente.enlace());
   useEffect(() => { fuente.sesion().then(setSesion); }, [fuente]);
   useEffect(() => { if (sesion) contarAvisos(); }, [sesion]);
 
   if (sesion === undefined) return <Vacio>Cargando…</Vacio>;
-  if (!sesion) return <Ingreso modoDemo={fuente.modoDemo} alIngresar={async (c, k) => { await fuente.iniciarSesion(c, k); setSesion(await fuente.sesion()); }} />;
+  if (!sesion) {
+    return <Ingreso modoDemo={fuente.modoDemo} avisoInicial={enlace?.tipo === 'error' ? enlace.mensaje : null}
+      alRecuperar={(c) => fuente.recuperarClave(c)}
+      alIngresar={async (c, k) => { await fuente.iniciarSesion(c, k); setEnlace(null); setSesion(await fuente.sesion()); }} />;
+  }
+  if (enlace?.tipo === 'clave') {
+    return <FijarClave correo={sesion.correo} motivo={enlace.motivo} alGuardar={async (k) => { await fuente.fijarClave(k); setEnlace(null); }} />;
+  }
 
   const menu: { clave: Vista['tipo']; texto: string; cuenta?: number }[] = [
     { clave: 'organizaciones', texto: 'Organizaciones' },

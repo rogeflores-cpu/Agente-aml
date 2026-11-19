@@ -186,8 +186,9 @@ según el enlace.
 
 1. En Supabase, **Authentication → Users → Invite user**, con un correo que esté en
    `PLATAFORMA_ADMINS`.
-2. Acepte la invitación desde el correo, fije la contraseña y entre a
-   `https://aml-plataforma.onrender.com`.
+2. Abra el correo de invitación y pulse el enlace: se abre la consola con la pantalla «Bienvenido: cree su
+   contraseña». Guárdela y entre a `https://aml-plataforma.onrender.com` con ese correo y contraseña.
+   Si el enlace venció, use «¿Olvidó su contraseña o es su primer ingreso?» en la pantalla de ingreso.
 3. En **Listas GAFI**, cargue la versión del último pleno (octubre de 2026). Sin ella el motor de riesgo
    no evalúa.
 4. **Designaciones 1373**: si hay alguna comunicada, regístrela. Mientras no haya ninguna, solo se

@@ -225,6 +225,9 @@ export function fuenteDemo(): Fuente {
       sesion = { usuarioId: `${rol}-demo`, correo: correo || `${rol}@demo.example` };
     },
     async cerrarSesion() { sesion = null; },
+    enlace: () => null,
+    async fijarClave() {},
+    async recuperarClave() {},
     async organizaciones() { return [{ id: ORG, nombre: 'Inmobiliaria Demostración', rol }]; },
 
     async bandeja() {
